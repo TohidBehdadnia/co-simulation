@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt
 
 # Folder of this script, used for saving plots and data
 BASE_DIR = Path(__file__).resolve().parent
+PLOTS_DIR = BASE_DIR / "plots"
 
 # Case files
 ieee14_raw = andes.get_case("ieee14/ieee14.raw")
@@ -231,7 +232,8 @@ def plot_frequency_from_arrays(t, freq, title, filename, y_limits=None):
     if y_limits is not None:
         ax.set_ylim(y_limits[0], y_limits[1])
 
-    out_path = BASE_DIR / filename
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PLOTS_DIR / filename
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to {out_path}")
 
