@@ -137,6 +137,74 @@ def build_system(t_shed: float, shed_dict: dict) -> andes.system.System:
     return ss
 
 
+def build_base_system() -> andes.system.System:
+    """Build an ANDES system (trip scheduled) without any shedding applied yet."""
+    ss = andes.load(ieee14_raw, addfile=ieee14_dyr, setup=False)
+
+    ss.add(
+        "Toggle",
+        dict(
+            name="Trip_GENROU_2",
+            model="SynGen",
+            dev="GENROU_2",
+            t=t_trip,
+        ),
+    )
+
+    ss.setup()
+
+    if len(ss.Toggle.u.v) >= 2:
+        ss.Toggle.u.v[[0, 1]] = 0
+
+    ss.PQ.config.p2p = 1
+    ss.PQ.config.q2q = 1
+    ss.PQ.config.p2z = 0
+    ss.PQ.config.q2z = 0
+    ss.PQ.pq2z = 0
+
+    ss.PFlow.run()
+    return ss
+
+
+def run_multi_stage_tds(ss: andes.system.System, events: list[tuple[float, dict]]) -> None:
+    """Run TDS in multiple stages applying PQ.Ppf updates at specified times.
+
+    Parameters
+    ----------
+    ss : andes.system.System
+        Initialized ANDES system.
+    events : list of (t_event, updates)
+        t_event is the absolute simulation time in seconds.
+        updates is a dict {pq_id: new_Ppf_value} to set at t_event.
+    """
+    ss.TDS.config.criteria = 0
+
+    # Ensure chronological order and clamp event times.
+    events_sorted = sorted([(float(t), upd) for t, upd in events], key=lambda x: x[0])
+    t_cur = 0.0
+    for t_evt, updates in events_sorted:
+        # Skip no-op or backwards events.
+        if t_evt <= t_cur + 1e-9:
+            # Apply immediately at current state.
+            if updates:
+                pq_ids = list(updates.keys())
+                pq_vals = [float(updates[i]) for i in pq_ids]
+                ss.PQ.set(src="Ppf", idx=pq_ids, attr="v", value=np.array(pq_vals, dtype=float))
+            continue
+
+        ss.TDS.config.tf = float(t_evt)
+        ss.TDS.run()
+        t_cur = float(t_evt)
+
+        if updates:
+            pq_ids = list(updates.keys())
+            pq_vals = [float(updates[i]) for i in pq_ids]
+            ss.PQ.set(src="Ppf", idx=pq_ids, attr="v", value=np.array(pq_vals, dtype=float))
+
+    ss.TDS.config.tf = t_final
+    ss.TDS.run()
+
+
 def run_two_stage_tds(ss: andes.system.System) -> None:
     t_shed = ss._t_shed
     pq_ids = ss._pq_ids_to_shed
@@ -211,6 +279,16 @@ def _parse_args() -> argparse.Namespace:
         default=_clamp_tick_ms(_env_int("IEC104_TICK_MS", 50)),
         help="IEC-104 server tick rate in milliseconds (min 50ms in c104).",
     )
+    parser.add_argument(
+        "--shed-mode",
+        choices=["all_at_once", "per_command"],
+        default=os.environ.get("IEC104_SHED_MODE", "all_at_once"),
+        help=(
+            "How to apply shedding in the ANDES simulation. "
+            "all_at_once: apply all shed deltas at t_trip + delay(last command). "
+            "per_command: apply each bus's shed delta at its own command-arrival time."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -239,11 +317,16 @@ def main():
     pq_by_bus = {int(ld["bus"]): ld["id"] for ld in loads}
 
     received_shed_by_bus: dict[int, float] = {}
+    received_shed_time_by_bus: dict[int, float] = {}
     all_received = threading.Event()
     start_received = threading.Event()
 
+    # Set once the measurement snapshot is successfully transmitted.
+    tx_t0: dict[str, float | None] = {"t0": None}
+
     def on_shed_command(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> c104.ResponseState:
         bus = int(point.io_address - IOA_SHED_BASE)
+        t_rx = time.perf_counter()
         try:
             # Prefer the incoming message payload (more reliable than point.value timing).
             received_shed_by_bus[bus] = float(message.info.value)
@@ -252,6 +335,8 @@ def main():
                 received_shed_by_bus[bus] = float(point.value)
             except Exception:
                 return c104.ResponseState.FAILURE
+
+        received_shed_time_by_bus[bus] = float(t_rx)
 
         if all(bus in received_shed_by_bus for bus in expected_buses):
             all_received.set()
@@ -326,6 +411,7 @@ def main():
         ok = server.transmit_batch(batch)
         if ok:
             t0 = t_try
+            tx_t0["t0"] = float(t0)
             break
         if t_try - t_tx_wait0 > 20.0:
             server.stop()
@@ -335,39 +421,138 @@ def main():
     print("[iec104-system] measurements transmitted, waiting for shed commands...")
 
     if not all_received.wait(timeout=20.0):
+        # In per_command mode we can still proceed with partial commands.
+        if args.shed_mode == "all_at_once":
+            server.stop()
+            raise TimeoutError("Did not receive all shed commands within 20s")
+        print(
+            f"[iec104-system] WARNING: not all shed commands received within timeout; proceeding with {len(received_shed_by_bus)}/{len(expected_buses)} commands",
+            flush=True,
+        )
+
+    if not received_shed_by_bus:
         server.stop()
-        raise TimeoutError("Did not receive all shed commands within 20s")
+        raise TimeoutError("Did not receive any shed commands")
 
-    t1 = time.perf_counter()
-    delay = t1 - t0
-    t_shed = t_trip + delay
-
-    shed_dict: dict = {}
-    for bus in expected_buses:
-        pq_id = pq_by_bus[bus]
-        shed_dict[pq_id] = float(received_shed_by_bus[bus])
-
-    print(f"[iec104-system] received all commands; delay={delay:.6f} s; t_shed={t_shed:.6f} s")
+    # Stop comms before running the offline simulation.
     server.stop()
 
-    # Run dynamics with computed shedding
-    ss = build_system(t_shed=t_shed, shed_dict=shed_dict)
-    run_two_stage_tds(ss)
-    t_arr, f_arr = extract_time_and_freq(ss)
+    if args.shed_mode == "all_at_once":
+        t1 = time.perf_counter()
+        delay = t1 - float(t0)
+        t_shed = t_trip + delay
+
+        shed_dict: dict = {}
+        for bus in expected_buses:
+            pq_id = pq_by_bus[bus]
+            shed_dict[pq_id] = float(received_shed_by_bus[bus])
+
+        print(f"[iec104-system] received all commands; delay={delay:.6f} s; t_shed={t_shed:.6f} s")
+
+        ss = build_system(t_shed=t_shed, shed_dict=shed_dict)
+        run_two_stage_tds(ss)
+        t_arr, f_arr = extract_time_and_freq(ss)
+        measured_delay = float(delay)
+        per_bus_delays = None
+
+    else:
+        # Apply each command at its own arrival time (relative to measurement transmit time).
+        t0_tx = tx_t0["t0"]
+        if t0_tx is None:
+            raise RuntimeError("Internal error: transmit t0 not set")
+
+        per_bus_delays_map: dict[int, float] = {}
+        events: list[tuple[float, dict]] = []
+
+        # Build a base system and compute baseline Ppf for all candidate PQs.
+        ss = build_base_system()
+
+        pq_ids_all = [pq_by_bus[b] for b in expected_buses]
+        ppf_base = ss.PQ.get(src="Ppf", idx=pq_ids_all, attr="v")
+        ppf_base_by_pq = {pq_id: float(p) for pq_id, p in zip(pq_ids_all, ppf_base)}
+
+        for bus, shed_amt in received_shed_by_bus.items():
+            if bus not in pq_by_bus:
+                continue
+            if bus not in received_shed_time_by_bus:
+                continue
+            t_rx = float(received_shed_time_by_bus[bus])
+            d = max(0.0, t_rx - float(t0_tx))
+            per_bus_delays_map[int(bus)] = float(d)
+            t_evt = float(t_trip + d)
+
+            pq_id = pq_by_bus[int(bus)]
+            new_ppf = float(ppf_base_by_pq[pq_id]) - float(shed_amt)
+
+            # Keep events separate per command to make individual steps visible.
+            events.append((float(t_evt), {pq_id: float(new_ppf)}))
+
+        # If two commands are truly simultaneous, merge them to avoid zero-length stages.
+        events_sorted = sorted(events, key=lambda x: x[0])
+        merged: list[tuple[float, dict]] = []
+        eps = 1e-6
+        for t_evt, upd in events_sorted:
+            if not merged:
+                merged.append((float(t_evt), dict(upd)))
+                continue
+            t_last, upd_last = merged[-1]
+            if abs(float(t_evt) - float(t_last)) <= eps:
+                upd_last.update(upd)
+                merged[-1] = (t_last, upd_last)
+            else:
+                merged.append((float(t_evt), dict(upd)))
+        events = merged
+
+        measured_delay = max(per_bus_delays_map.values()) if per_bus_delays_map else 0.0
+        per_bus_delays = np.array([per_bus_delays_map.get(int(b), np.nan) for b in expected_buses], dtype=float)
+
+        print(
+            f"[iec104-system] per_command shedding events: n={len(events)} last_delay={measured_delay:.6f} s",
+            flush=True,
+        )
+
+        # Log the per-command schedule (sorted by event time).
+        try:
+            schedule_rows = []
+            for bus in sorted(per_bus_delays_map.keys()):
+                d = float(per_bus_delays_map[bus])
+                schedule_rows.append((float(t_trip + d), int(bus), d))
+            for t_evt, bus, d in sorted(schedule_rows, key=lambda x: x[0]):
+                print(f"[iec104-system]   bus={bus:>2} delay={d:.6f} s -> t_shed={t_evt:.6f} s", flush=True)
+        except Exception:
+            pass
+
+        run_multi_stage_tds(ss, events)
+        t_arr, f_arr = extract_time_and_freq(ss)
+
+    shed_tag = "percmd" if args.shed_mode == "per_command" else "all"
 
     if args.scenario == "direct":
         title = "Frequency - IEC-104 (direct)"
-        png_name = "freq_iec104_direct.png"
-        npz_name = "case_iec104_direct.npz"
+        png_name = f"freq_iec104_direct_{shed_tag}.png"
+        npz_name = f"case_iec104_direct_{shed_tag}.npz"
     else:
         induced = float(args.induced_delay)
         title = f"Frequency - IEC-104 (MITM, induced delay={induced:.3f} s)"
         tag = _delay_tag(induced)
-        png_name = f"freq_iec104_mitm_delay{tag}.png"
-        npz_name = f"case_iec104_mitm_delay{tag}.npz"
+        png_name = f"freq_iec104_mitm_delay{tag}_{shed_tag}.png"
+        npz_name = f"case_iec104_mitm_delay{tag}_{shed_tag}.npz"
+
+    if args.shed_mode == "per_command":
+        title = title + " [per-command shedding]"
 
     plot_frequency(t_arr, f_arr, title, png_name)
-    np.savez(BASE_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=delay)
+    if per_bus_delays is None:
+        np.savez(BASE_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
+    else:
+        np.savez(
+            BASE_DIR / npz_name,
+            t=t_arr,
+            freq=f_arr,
+            measured_delay=float(measured_delay),
+            buses=np.array(expected_buses, dtype=int),
+            per_bus_delay=per_bus_delays,
+        )
 
 
 if __name__ == "__main__":

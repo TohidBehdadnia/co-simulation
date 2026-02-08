@@ -8,6 +8,13 @@ Scripts:
 - [system_RT_iec104.py](system_RT_iec104.py): runs the ANDES simulation and hosts an IEC-104 outstation (server).
 - [controller_iec104_master.py](controller_iec104_master.py): IEC-104 master (client) that computes proportional shedding and sends setpoints.
 
+Shedding application modes (outstation):
+- Default: `--shed-mode all_at_once` applies all shed deltas at `t_trip + delay(last command)`.
+- Optional: `--shed-mode per_command` applies each bus's shed delta at its own command-arrival time (stepwise response).
+
+To make stepwise effects clearly visible, you can intentionally stagger controller commands:
+- `--inter-command-sleep-ms 50` (or env `IEC104_INTER_COMMAND_SLEEP_MS=50`).
+
 Run (two terminals):
 - Terminal A (outstation + simulation): `.venv/bin/python system_RT_iec104.py --scenario direct`
 - Terminal B (controller): `.venv/bin/python controller_iec104_master.py`

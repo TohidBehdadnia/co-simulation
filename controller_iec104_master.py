@@ -70,6 +70,12 @@ def _parse_args() -> argparse.Namespace:
         default=_clamp_tick_ms(_env_int("IEC104_TICK_MS", 50)),
         help="IEC-104 client tick rate in milliseconds (min 50ms in c104).",
     )
+    ap.add_argument(
+        "--inter-command-sleep-ms",
+        type=float,
+        default=float(os.environ.get("IEC104_INTER_COMMAND_SLEEP_MS", "0")),
+        help="Optional sleep between successive shed commands (ms). Use to make per-command effects visible.",
+    )
     return ap.parse_args()
 
 
@@ -165,6 +171,8 @@ def main():
         nonlocal sent
         shed_by_bus = compute_shed_by_bus(lost_p, ppf_by_bus)
 
+        inter_sleep_s = max(0.0, float(args.inter_command_sleep_ms)) / 1000.0
+
         print(f"[iec104-controller] lost_p={lost_p:.6f} pu", flush=True)
         for bus in expected_buses:
             print(f"  bus={bus:>2} Ppf={ppf_by_bus[bus]:.6f} -> shed={shed_by_bus[bus]:.6f} pu", flush=True)
@@ -175,6 +183,8 @@ def main():
             cmd_points[bus].value = float(shed_by_bus[bus])
             ok = cmd_points[bus].transmit(c104.Cot.ACTIVATION)
             all_ok = all_ok and bool(ok)
+            if inter_sleep_s > 0:
+                time.sleep(inter_sleep_s)
         t1 = time.perf_counter()
 
         sent = True
