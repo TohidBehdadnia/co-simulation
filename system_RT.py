@@ -219,18 +219,28 @@ def extract_time_and_freq(ss):
     return ts, freq_first
 
 
-def plot_frequency_from_arrays(t, freq, title, filename, y_limits=None):
+def plot_frequency_from_arrays(t, freq, title, filename, y_limits=None, last_cmd_time=None):
     """
     Plot frequency (Hz) from arrays and save to file.
     """
     fig, ax = plt.subplots()
-    ax.plot(t, freq)
+    ax.plot(t, freq, label="Frequency")
+    if last_cmd_time is not None:
+        t_last = float(last_cmd_time)
+        ax.axvline(
+            t_last,
+            color="r",
+            linestyle="--",
+            label=f"Last command arrival: t={t_last:.3f} s",
+        )
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
     ax.set_title(title)
 
     if y_limits is not None:
         ax.set_ylim(y_limits[0], y_limits[1])
+
+    ax.legend(loc="best")
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PLOTS_DIR / filename
@@ -263,6 +273,7 @@ def main():
         "Frequency - local controller (no TCP)",
         "freq_local.png",
         y_limits=FREQ_Y_LIMS,
+        last_cmd_time=float(t_shed_local),
     )
     np.savez(BASE_DIR / "case_local.npz", t=t_local, freq=f_local)
 
@@ -282,6 +293,7 @@ def main():
         "Frequency - remote controller (direct TCP)",
         "freq_direct.png",
         y_limits=FREQ_Y_LIMS,
+        last_cmd_time=float(t_shed_direct),
     )
     np.savez(BASE_DIR / "case_direct.npz", t=t_direct, freq=f_direct)
 
@@ -301,6 +313,7 @@ def main():
         "Frequency - remote controller (TCP via proxy)",
         "freq_proxy.png",
         y_limits=FREQ_Y_LIMS,
+        last_cmd_time=float(t_shed_proxy),
     )
     np.savez(BASE_DIR / "case_proxy.npz", t=t_proxy, freq=f_proxy)
 

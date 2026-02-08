@@ -47,15 +47,17 @@ Example (stepwise response):
 To inject extra network delay into IEC-104, run an IEC-104-aware MITM bridge (it speaks IEC-104 as an outstation to the controller, and as a master to the real outstation).
 
 Run (three terminals):
-- Terminal A (outstation): `.venv/bin/python system_RT_iec104.py --scenario mitm --induced-delay 0.20` (listens on `127.0.0.1:2404`)
-- Terminal B (MITM proxy): `.venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20`
+- Terminal A (outstation): `.venv/bin/python system_RT_iec104.py --scenario mitm` (listens on `127.0.0.1:2404`)
+- Terminal B (MITM proxy, fixed delay): `.venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20`
+- Terminal B (MITM proxy, random per-packet delay): `.venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay-min 0.05 --shed-delay-max 0.45 --seed 98`
 - Terminal C (controller via proxy): `.venv/bin/python controller_iec104_master.py --scenario mitm` (defaults to port `2405`)
 
 Notes:
 - The proxy adds delay only to the shedding setpoint commands (IOA `20000+bus`), not to monitoring values.
+- With `--shed-delay-min/--shed-delay-max`, each shed command gets its own delay sampled uniformly; `--seed` makes runs repeatable.
 - If you set `IEC104_PORT`, it overrides the scenario default.
 
 Outputs:
 - Plots (direct): `plots/freq_iec104_direct_all.png` or `plots/freq_iec104_direct_percmd.png`
-- Plots (MITM): `plots/freq_iec104_mitm_delay<X>_all.png` or `plots/freq_iec104_mitm_delay<X>_percmd.png`
+- Plots (MITM): `plots/freq_iec104_mitm_all.png` or `plots/freq_iec104_mitm_percmd.png`
 - Data (ignored by git): `case_iec104_*.npz`

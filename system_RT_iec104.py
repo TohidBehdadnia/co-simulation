@@ -227,13 +227,23 @@ def extract_time_and_freq(ss: andes.system.System):
     return ts, freq_mat[:, 0]
 
 
-def plot_frequency(t, freq, title: str, filename: str) -> None:
+def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | None = None) -> None:
     fig, ax = plt.subplots()
-    ax.plot(t, freq)
+    ax.plot(t, freq, label="Frequency")
+    if last_cmd_time is not None:
+        t_last = float(last_cmd_time)
+        ax.axvline(
+            t_last,
+            color="r",
+            linestyle="--",
+            label=f"Last command arrival: t={t_last:.3f} s",
+        )
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
     ax.set_title(title)
     ax.set_ylim(FREQ_Y_LIMS[0], FREQ_Y_LIMS[1])
+
+    ax.legend(loc="best")
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PLOTS_DIR / filename
@@ -254,12 +264,6 @@ def _parse_args() -> argparse.Namespace:
         choices=["direct", "mitm"],
         default=os.environ.get("IEC104_SCENARIO", "direct"),
         help="Label outputs as direct IEC-104 or MITM-proxied IEC-104 (default: direct).",
-    )
-    parser.add_argument(
-        "--induced-delay",
-        type=float,
-        default=(float(os.environ["IEC104_INDUCED_DELAY"]) if "IEC104_INDUCED_DELAY" in os.environ else None),
-        help="Induced delay configured in the MITM (seconds). Required when --scenario mitm.",
     )
     parser.add_argument(
         "--wait-start",
@@ -296,9 +300,6 @@ def main():
     andes.config_logger(stream_level=20)
 
     args = _parse_args()
-    if args.scenario == "mitm" and args.induced_delay is None:
-        raise ValueError("For --scenario mitm you must pass --induced-delay (or set IEC104_INDUCED_DELAY).")
-
     if args.scenario == "mitm":
         print(
             "[iec104-system] NOTE: --scenario mitm only affects output labeling. "
@@ -438,9 +439,16 @@ def main():
     server.stop()
 
     if args.shed_mode == "all_at_once":
-        t1 = time.perf_counter()
-        delay = t1 - float(t0)
-        t_shed = t_trip + delay
+        t0_tx = tx_t0["t0"]
+        if t0_tx is None:
+            raise RuntimeError("Internal error: transmit t0 not set")
+
+        # For consistency with per_command mode, measure delay as:
+        #   (timestamp of last received command) - (timestamp of measurement transmit).
+        # This avoids including extra overhead (thread wake-up, server.stop(), scheduling jitter).
+        t_last_rx = max(float(v) for v in received_shed_time_by_bus.values())
+        delay = max(0.0, float(t_last_rx) - float(t0_tx))
+        t_shed = t_trip + float(delay)
 
         shed_dict: dict = {}
         for bus in expected_buses:
@@ -532,16 +540,14 @@ def main():
         png_name = f"freq_iec104_direct_{shed_tag}.png"
         npz_name = f"case_iec104_direct_{shed_tag}.npz"
     else:
-        induced = float(args.induced_delay)
-        title = f"Frequency - IEC-104 (MITM, induced delay={induced:.3f} s)"
-        tag = _delay_tag(induced)
-        png_name = f"freq_iec104_mitm_delay{tag}_{shed_tag}.png"
-        npz_name = f"case_iec104_mitm_delay{tag}_{shed_tag}.npz"
+        title = "Frequency - IEC-104 (MITM)"
+        png_name = f"freq_iec104_mitm_{shed_tag}.png"
+        npz_name = f"case_iec104_mitm_{shed_tag}.npz"
 
     if args.shed_mode == "per_command":
         title = title + " [per-command shedding]"
 
-    plot_frequency(t_arr, f_arr, title, png_name)
+    plot_frequency(t_arr, f_arr, title, png_name, last_cmd_time=float(t_trip + measured_delay))
     if per_bus_delays is None:
         np.savez(BASE_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
     else:

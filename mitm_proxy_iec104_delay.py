@@ -22,6 +22,7 @@ Run example (3 terminals):
 """
 
 import argparse
+import random
 import threading
 import time
 import sys
@@ -50,6 +51,24 @@ def main() -> None:
     ap.add_argument("--upstream-port", type=int, default=2404, help="real outstation server port")
     ap.add_argument("--ca", type=int, default=1, help="station common address")
     ap.add_argument("--shed-delay", type=float, default=0.0, help="additional delay (seconds) applied ONLY to shed commands")
+    ap.add_argument(
+        "--shed-delay-min",
+        type=float,
+        default=None,
+        help="if set together with --shed-delay-max, apply a per-packet random delay U[min,max] to EACH shed command packet",
+    )
+    ap.add_argument(
+        "--shed-delay-max",
+        type=float,
+        default=None,
+        help="upper bound for per-packet random delay (seconds)",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="RNG seed for repeatable per-packet delays (only used with --shed-delay-min/--shed-delay-max)",
+    )
     ap.add_argument("--tick-ms", type=int, default=50, help="tick rate (ms), min 50ms in c104")
     ap.add_argument("--command-timeout-ms", type=int, default=10000)
     ap.add_argument("--shed-buses", default="2,3,4,5,6,9", help="comma-separated bus list for shed commands")
@@ -59,6 +78,9 @@ def main() -> None:
 
     shed_buses = [int(x.strip()) for x in args.shed_buses.split(",") if x.strip()]
     ca = int(args.ca)
+
+    use_random_per_packet = (args.shed_delay_min is not None) and (args.shed_delay_max is not None)
+    rng = random.Random(args.seed) if use_random_per_packet else None
 
     t0 = time.monotonic()
 
@@ -77,7 +99,13 @@ def main() -> None:
     print(
         f"[iec104-mitm] listen {args.listen_host}:{args.listen_port} (as outstation) | "
         f"upstream {args.upstream_host}:{args.upstream_port} (as master) | CA={ca} | shed_delay={args.shed_delay}s"
-        , flush=True
+        + (
+            f" | per_packet_delay=U[{float(args.shed_delay_min):.3f},{float(args.shed_delay_max):.3f}]s seed={args.seed}"
+            if use_random_per_packet
+            else ""
+        )
+        ,
+        flush=True,
     )
 
     # --------------------------
@@ -208,7 +236,9 @@ def main() -> None:
                 pt.transmit(c104.Cot.SPONTANEOUS)
 
     # --------------------------
-    # Delay ONLY shedding commands (buffer + flush)
+    # Delay ONLY shedding commands
+    #   - Default: buffer + flush once after fixed --shed-delay (legacy behavior)
+    #   - Optional: per-packet random delay U[min,max] for EACH shed command
     # --------------------------
     start_lock = threading.Lock()
     pending_start: bool | None = None
@@ -254,6 +284,57 @@ def main() -> None:
     cmd_lock = threading.Lock()
     pending_shed: dict[int, float] = {}  # ioa -> value
     flush_timer: threading.Timer | None = None
+
+    def _sample_shed_delay() -> float:
+        if not use_random_per_packet:
+            return max(0.0, float(args.shed_delay))
+        lo = float(args.shed_delay_min)
+        hi = float(args.shed_delay_max)
+        if lo > hi:
+            lo, hi = hi, lo
+        if hi <= 0.0:
+            return 0.0
+        lo = max(0.0, lo)
+        hi = max(0.0, hi)
+        # rng is set when use_random_per_packet=True
+        return float(rng.uniform(lo, hi))
+
+    def _forward_one_shed(ioa: int, value: float, sampled_delay_s: float) -> None:
+        ioa = int(ioa)
+        value = float(value)
+        sampled_delay_s = max(0.0, float(sampled_delay_s))
+
+        def _attempt_send() -> None:
+            if not upstream_open.is_set():
+                log(f"FWD shed deferred (upstream not open) ioa={ioa}")
+                t = threading.Timer(0.1, _attempt_send)
+                t.daemon = True
+                t.start()
+                return
+
+            bus = int(ioa - IOA_SHED_BASE)
+            pt = up_shed_cmd.get(bus)
+            if pt is None:
+                return
+            try:
+                pt.value = float(value)
+                ok = pt.transmit(c104.Cot.ACTIVATION)
+            except Exception:
+                ok = False
+
+            if not ok:
+                log(f"FWD shed failed; retrying ioa={ioa}")
+                t = threading.Timer(0.1, _attempt_send)
+                t.daemon = True
+                t.start()
+                return
+
+            log(f"FWD MITM->upstream shed ioa={ioa} value={float(value)}")
+
+        log(f"ARM per-packet shed timer ioa={ioa} delay={sampled_delay_s:.3f}s")
+        t = threading.Timer(sampled_delay_s, _attempt_send)
+        t.daemon = True
+        t.start()
 
     def flush_shed_commands() -> None:
         nonlocal flush_timer
@@ -357,20 +438,26 @@ def main() -> None:
                 return c104.ResponseState.FAILURE
 
         if is_shed_command_ioa(ioa, shed_buses):
-            # Buffer and flush once after shed-delay.
-            nonlocal flush_timer
-            with cmd_lock:
-                pending_shed[ioa] = float(value)
-                log(f"BUF shed ioa={ioa} value={float(value)} pending={len(pending_shed)}")
-                if flush_timer is None:
-                    delay_s = max(0.0, float(args.shed_delay))
-                    log(f"ARM flush timer in {delay_s:.3f}s")
-                    if delay_s == 0.0:
-                        flush_timer = threading.Timer(0.0, flush_shed_commands)
-                    else:
-                        flush_timer = threading.Timer(delay_s, flush_shed_commands)
-                    flush_timer.daemon = True
-                    flush_timer.start()
+            if use_random_per_packet:
+                # Independent delay for each shed command packet.
+                with cmd_lock:
+                    delay_s = _sample_shed_delay()
+                _forward_one_shed(int(ioa), float(value), float(delay_s))
+            else:
+                # Legacy: buffer and flush once after fixed --shed-delay.
+                nonlocal flush_timer
+                with cmd_lock:
+                    pending_shed[ioa] = float(value)
+                    log(f"BUF shed ioa={ioa} value={float(value)} pending={len(pending_shed)}")
+                    if flush_timer is None:
+                        delay_s = max(0.0, float(args.shed_delay))
+                        log(f"ARM flush timer in {delay_s:.3f}s")
+                        if delay_s == 0.0:
+                            flush_timer = threading.Timer(0.0, flush_shed_commands)
+                        else:
+                            flush_timer = threading.Timer(delay_s, flush_shed_commands)
+                        flush_timer.daemon = True
+                        flush_timer.start()
 
             # Ack immediately; the forwarding is delayed.
             return c104.ResponseState.SUCCESS
