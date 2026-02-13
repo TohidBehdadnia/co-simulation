@@ -12,7 +12,7 @@ Scripts:
 
 Outputs:
 - Plots: `plots/freq_local.png`, `plots/freq_direct.png`, `plots/freq_proxy.png`
-- Data (ignored by git): `case_local.npz`, `case_direct.npz`, `case_proxy.npz`
+- Data: `results/case_local.npz`, `results/case_direct.npz`, `results/case_proxy.npz`
 
 ## IEC 60870-5-104 variant (c104)
 
@@ -21,7 +21,7 @@ This repo includes an IEC-104 version of the same “measure delay → apply loa
 Scripts:
 - [system_RT_iec104.py](system_RT_iec104.py): runs the ANDES simulation and hosts an IEC-104 outstation (server).
 - [controller_iec104_master.py](controller_iec104_master.py): IEC-104 master (client) that computes proportional shedding and sends setpoints.
-- [mitm_proxy_iec104_delay.py](mitm_proxy_iec104_delay.py): IEC-104-aware MITM bridge that can delay only the shedding commands.
+- [mitm_proxy_iec104.py](mitm_proxy_iec104.py): IEC-104-aware MITM bridge that can delay or drop only the shedding commands.
 
 Shedding application modes (outstation):
 - Default: `--shed-mode all_at_once` applies all shed deltas at `t_trip + delay(last command)`.
@@ -48,8 +48,8 @@ To inject extra network delay into IEC-104, run an IEC-104-aware MITM bridge (it
 
 Run (three terminals):
 - Terminal A (outstation): `.venv/bin/python system_RT_iec104.py --scenario mitm` (listens on `127.0.0.1:2404`)
-- Terminal B (MITM proxy, fixed delay): `.venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20`
-- Terminal B (MITM proxy, random per-packet delay): `.venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay-min 0.05 --shed-delay-max 0.45 --seed 98`
+- Terminal B (MITM proxy, fixed delay): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20`
+- Terminal B (MITM proxy, random per-packet delay): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --shed-delay-min 0.05 --shed-delay-max 0.45 --seed 98`
 - Terminal C (controller via proxy): `.venv/bin/python controller_iec104_master.py --scenario mitm` (defaults to port `2405`)
 
 Notes:
@@ -59,5 +59,19 @@ Notes:
 
 Outputs:
 - Plots (direct): `plots/freq_iec104_direct_all.png` or `plots/freq_iec104_direct_percmd.png`
-- Plots (MITM): `plots/freq_iec104_mitm_all.png` or `plots/freq_iec104_mitm_percmd.png`
-- Data (ignored by git): `case_iec104_*.npz`
+- Plots (MITM): `plots/freq_iec104_mitm_<mode>_all.png` or `plots/freq_iec104_mitm_<mode>_percmd.png`
+- Data: `results/case_iec104_*.npz`
+
+### MITM proxy with drop
+
+This mode randomly drops *shed command* packets in the MITM proxy (monitoring values are still forwarded).
+
+Run (three terminals):
+- Terminal A (outstation + simulation): `.venv/bin/python system_RT_iec104.py --scenario mitm --mitm-mode drop`
+- Terminal B (MITM proxy, dropping commands): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --command-drop-prob 0.4 --seed 98`
+- Terminal C (controller via proxy): `.venv/bin/python controller_iec104_master.py --scenario mitm`
+
+Outstation behavior in `drop` mode:
+- The outstation waits up to 20s for commands, then applies whatever commands arrived by the timeout.
+- Missing (dropped) commands are treated as “no shedding” for those buses.
+- If no commands arrive, it still runs the trip-only simulation (no shedding applied).

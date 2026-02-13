@@ -68,7 +68,7 @@ IOA_PPF_BASE = 10000
 IOA_SHED_BASE = 20000
 
 # y limits for frequency plots
-FREQ_Y_LIMS = (59.6, 60.1)
+FREQ_Y_LIMS = (59.55, 60.1)
 
 
 def build_info_system():
@@ -294,6 +294,16 @@ def _parse_args() -> argparse.Namespace:
             "per_command: apply each bus's shed delta at its own command-arrival time."
         ),
     )
+    parser.add_argument(
+        "--mitm-mode",
+        choices=["delay", "drop"],
+        default=os.environ.get("IEC104_MITM_MODE", "delay"),
+        help=(
+            "If --scenario mitm, how to simulate the MITM behavior. "
+            "delay: add a delay to all commands. "
+            "drop: randomly drop some commands with a given probability."
+        )
+    )
     return parser.parse_args()
 
 
@@ -322,6 +332,8 @@ def main():
     received_shed_time_by_bus: dict[int, float] = {}
     all_received = threading.Event()
     start_received = threading.Event()
+
+    allow_partial_commands = bool(args.scenario == "mitm" and args.mitm_mode == "drop")
 
     # Set once the measurement snapshot is successfully transmitted.
     tx_t0: dict[str, float | None] = {"t0": None}
@@ -424,7 +436,8 @@ def main():
 
     if not all_received.wait(timeout=20.0):
         # In per_command mode we can still proceed with partial commands.
-        if args.shed_mode == "all_at_once":
+        # In MITM drop mode, commands may never arrive: proceed with whatever we got.
+        if args.shed_mode == "all_at_once" and not allow_partial_commands:
             server.stop()
             raise TimeoutError("Did not receive all shed commands within 20s")
         print(
@@ -432,9 +445,14 @@ def main():
             flush=True,
         )
 
-    if not received_shed_by_bus:
+    if not received_shed_by_bus and not allow_partial_commands:
         server.stop()
         raise TimeoutError("Did not receive any shed commands")
+    elif not received_shed_by_bus and allow_partial_commands:
+        print(
+            "[iec104-system] WARNING: no shed commands received (MITM drop mode); proceeding with no shedding applied",
+            flush=True,
+        )
 
     # Stop comms before running the offline simulation.
     server.stop()
@@ -447,19 +465,38 @@ def main():
         # For consistency with per_command mode, measure delay as:
         #   (timestamp of last received command) - (timestamp of measurement transmit).
         # This avoids including extra overhead (thread wake-up, server.stop(), scheduling jitter).
-        t_last_rx = max(float(v) for v in received_shed_time_by_bus.values())
-        delay = max(0.0, float(t_last_rx) - float(t0_tx))
+        if received_shed_time_by_bus:
+            t_last_rx = max(float(v) for v in received_shed_time_by_bus.values())
+            delay = max(0.0, float(t_last_rx) - float(t0_tx))
+        else:
+            delay = 0.0
         t_shed = t_trip + float(delay)
 
         shed_dict: dict = {}
-        for bus in expected_buses:
-            pq_id = pq_by_bus[bus]
-            shed_dict[pq_id] = float(received_shed_by_bus[bus])
+        for bus, shed_amt in received_shed_by_bus.items():
+            if int(bus) not in pq_by_bus:
+                continue
+            pq_id = pq_by_bus[int(bus)]
+            shed_dict[pq_id] = float(shed_amt)
 
-        print(f"[iec104-system] received all commands; delay={delay:.6f} s; t_shed={t_shed:.6f} s")
+        if len(received_shed_by_bus) == len(expected_buses):
+            print(f"[iec104-system] received all commands; delay={delay:.6f} s; t_shed={t_shed:.6f} s")
+        else:
+            print(
+                f"[iec104-system] received {len(received_shed_by_bus)}/{len(expected_buses)} commands; "
+                f"delay(last received)={delay:.6f} s; t_shed={t_shed:.6f} s",
+                flush=True,
+            )
 
-        ss = build_system(t_shed=t_shed, shed_dict=shed_dict)
-        run_two_stage_tds(ss)
+        if shed_dict:
+            ss = build_system(t_shed=t_shed, shed_dict=shed_dict)
+            run_two_stage_tds(ss)
+        else:
+            # No commands => run only the trip event.
+            ss = build_base_system()
+            ss.TDS.config.criteria = 0
+            ss.TDS.config.tf = t_final
+            ss.TDS.run()
         t_arr, f_arr = extract_time_and_freq(ss)
         measured_delay = float(delay)
         per_bus_delays = None
@@ -535,15 +572,17 @@ def main():
         t_arr, f_arr = extract_time_and_freq(ss)
 
     shed_tag = "percmd" if args.shed_mode == "per_command" else "all"
+    mitm_mode_tag = args.mitm_mode if args.scenario == "mitm" else "direct"
 
     if args.scenario == "direct":
         title = "Frequency - IEC-104 (direct)"
         png_name = f"freq_iec104_direct_{shed_tag}.png"
         npz_name = f"case_iec104_direct_{shed_tag}.npz"
     else:
-        title = "Frequency - IEC-104 (MITM)"
-        png_name = f"freq_iec104_mitm_{shed_tag}.png"
-        npz_name = f"case_iec104_mitm_{shed_tag}.npz"
+        if args.mitm_mode == "delay" or args.mitm_mode == "drop":
+            title = f"Frequency - IEC-104 (MITM - {mitm_mode_tag})"
+            png_name = f"freq_iec104_mitm_{mitm_mode_tag}_{shed_tag}.png"
+            npz_name = f"case_iec104_mitm_{mitm_mode_tag}_{shed_tag}.npz"
 
     if args.shed_mode == "per_command":
         title = title + " [per-command shedding]"

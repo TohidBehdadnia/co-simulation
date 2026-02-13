@@ -17,7 +17,8 @@ This proxy is tailored to the IOA mapping used by system_RT_iec104.py:
 
 Run example (3 terminals):
 - Outstation:  .venv/bin/python system_RT_iec104.py
-- MITM:       .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20
+- MITM (delay): .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20
+- MITM (drop): .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --drop-command-prob 0.5 --seed 98
 - Controller: IEC104_PORT=2405 .venv/bin/python controller_iec104_master.py
 """
 
@@ -64,6 +65,12 @@ def main() -> None:
         help="upper bound for per-packet random delay (seconds)",
     )
     ap.add_argument(
+        "--command-drop-prob",
+        type=float,        
+        default=0.0,
+        help="probability [0.0-1.0] of randomly dropping a shed command packet instead of forwarding",
+    )
+    ap.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -80,7 +87,8 @@ def main() -> None:
     ca = int(args.ca)
 
     use_random_per_packet = (args.shed_delay_min is not None) and (args.shed_delay_max is not None)
-    rng = random.Random(args.seed) if use_random_per_packet else None
+    drop_packet_randomly = (args.command_drop_prob is not None) and (0.0 < args.command_drop_prob < 1.0)
+    rng = random.Random(args.seed) if use_random_per_packet or drop_packet_randomly else None
 
     t0 = time.monotonic()
 
@@ -443,6 +451,15 @@ def main() -> None:
                 with cmd_lock:
                     delay_s = _sample_shed_delay()
                 _forward_one_shed(int(ioa), float(value), float(delay_s))
+            elif drop_packet_randomly:
+                # Randomly drop the packet instead of forwarding.
+                if rng.random() < float(args.command_drop_prob):
+                    log(f"DROPPED shed command ioa={ioa} value={float(value)}")
+                else:
+                    log(f"FORWARDING shed command ioa={ioa} value={float(value)} (not dropped)")
+                    with cmd_lock:
+                        delay_s = _sample_shed_delay()
+                    _forward_one_shed(int(ioa), float(value), float(delay_s))
             else:
                 # Legacy: buffer and flush once after fixed --shed-delay.
                 nonlocal flush_timer
