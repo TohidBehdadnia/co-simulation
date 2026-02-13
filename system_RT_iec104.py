@@ -31,6 +31,7 @@ import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parent
 PLOTS_DIR = BASE_DIR / "plots"
+RESULS_DIR = BASE_DIR / "results"
 
 # Case files
 ieee14_raw = andes.get_case("ieee14/ieee14.raw")
@@ -548,11 +549,12 @@ def main():
         title = title + " [per-command shedding]"
 
     plot_frequency(t_arr, f_arr, title, png_name, last_cmd_time=float(t_trip + measured_delay))
+    RESULS_DIR.mkdir(parents=True, exist_ok=True)
     if per_bus_delays is None:
-        np.savez(BASE_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
+        np.savez(RESULS_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
     else:
         np.savez(
-            BASE_DIR / npz_name,
+            RESULS_DIR / npz_name,
             t=t_arr,
             freq=f_arr,
             measured_delay=float(measured_delay),

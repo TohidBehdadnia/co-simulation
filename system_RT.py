@@ -34,6 +34,7 @@ import matplotlib.pyplot as plt
 # Folder of this script, used for saving plots and data
 BASE_DIR = Path(__file__).resolve().parent
 PLOTS_DIR = BASE_DIR / "plots"
+RESULTS_DIR = BASE_DIR / "results"
 
 # Case files
 ieee14_raw = andes.get_case("ieee14/ieee14.raw")
@@ -275,7 +276,7 @@ def main():
         y_limits=FREQ_Y_LIMS,
         last_cmd_time=float(t_shed_local),
     )
-    np.savez(BASE_DIR / "case_local.npz", t=t_local, freq=f_local)
+    np.savez(RESULTS_DIR / "case_local.npz", t=t_local, freq=f_local)
 
     # Case B: remote controller direct TCP
     delay_direct, shed_direct = call_remote_controller(
@@ -295,7 +296,7 @@ def main():
         y_limits=FREQ_Y_LIMS,
         last_cmd_time=float(t_shed_direct),
     )
-    np.savez(BASE_DIR / "case_direct.npz", t=t_direct, freq=f_direct)
+    np.savez(RESULTS_DIR / "case_direct.npz", t=t_direct, freq=f_direct)
 
     # Case C: remote controller through proxy
     delay_proxy, shed_proxy = call_remote_controller(
@@ -315,7 +316,7 @@ def main():
         y_limits=FREQ_Y_LIMS,
         last_cmd_time=float(t_shed_proxy),
     )
-    np.savez(BASE_DIR / "case_proxy.npz", t=t_proxy, freq=f_proxy)
+    np.savez(RESULTS_DIR / "case_proxy.npz", t=t_proxy, freq=f_proxy)
 
 
 if __name__ == "__main__":

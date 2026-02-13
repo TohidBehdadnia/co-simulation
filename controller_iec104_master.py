@@ -242,8 +242,7 @@ def main():
             except Exception:
                 pass
             # With the start handshake enabled on the outstation, we rely on the outstation
-            # to transmit a measurement snapshot after start. Avoid issuing interrogation here,
-            # because it can race with the start command and return default zeros.
+            # to transmit a measurement snapshot after start.
 
     conn.on_state_change(callable=on_state_change)
 
