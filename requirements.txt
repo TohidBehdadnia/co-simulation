@@ -1,2 +1,6 @@
+pandas
+numpy
 andes
 c104
+matplotlib
+seaborn

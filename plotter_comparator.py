@@ -4,6 +4,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
+
+sns.set_theme()
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -214,6 +217,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
     band_mode = str(getattr(args, "band", "ci95")).lower()
     fig, ax = plt.subplots()
+    ax.set_axisbelow(True)
 
     mean_handles: list[plt.Line2D] = []
     last_cmd_stats: list[tuple[str, str, float | None, float]] = []  # (label, color, mean, hw)
@@ -256,7 +260,15 @@ def plot_comparison(args: argparse.Namespace) -> None:
         freq_mat = np.vstack([np.asarray(x, dtype=float) for x in runs_freq])
         mean_f, lo_f, hi_f = _mean_and_band(freq_mat, mode=band_mode)
 
-        (line,) = ax.plot(t_plot, mean_f, marker=markers[i % len(markers)], markevery=15, label=f"{label} (mean)", linewidth=2.0)
+        n_lines_before = len(ax.lines)
+        band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
+        label_str = f"{label} (mean {band_txt})"
+        sns.lineplot(x=t_plot, y=mean_f, ax=ax, label=label_str, linewidth=2.0)
+        if len(ax.lines) <= n_lines_before:
+            raise RuntimeError("Failed to create mean line plot")
+        line = ax.lines[-1]
+        line.set_marker(markers[i % len(markers)])
+        line.set_markevery(15)
         mean_handles.append(line)
         if freq_mat.shape[0] > 1:
             ax.fill_between(
@@ -314,6 +326,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 ax.axvspan(m - hw, m + hw, color=color, alpha=0.12, linewidth=0, zorder=1)
 
             band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
+            band_txt = f"(mean {band_txt})"
             h = ax.axvline(
                 m,
                 color=color,
@@ -321,7 +334,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 linewidth=1.6,
                 alpha=0.95,
                 zorder=5,
-                label=f"Last cmd mean={m:.3f}s {band_txt}",
+                label=f"Last cmd t={m:.3f}s {band_txt}",
             )
             last_cmd_handles.append(h)
 
@@ -344,10 +357,10 @@ def plot_comparison(args: argparse.Namespace) -> None:
         float(t_trip),
         color="k",
         linestyle=":",
-        linewidth=1.4,
-        alpha=0.85,
-        zorder=0,
-        label=f"Trip time: t={float(t_trip):.3f} s",
+        linewidth=1.8,
+        alpha=0.95,
+        zorder=10,
+        label=f"Gen 2 trip t={float(t_trip):.1f} s",
     )
 
     # Compact legend: place below the axes (avoids covering curves).
@@ -361,7 +374,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
         handles=handles,
         labels=[h.get_label() for h in handles],
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
+        bbox_to_anchor=(0.5, -0.18),
         ncol=2,
         fontsize=8,
         frameon=True,
@@ -377,7 +390,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
     out_name = str(Path(out_name).with_suffix(".pdf"))
     out_path = PLOTS_DIR / out_name
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.subplots_adjust(bottom=0.25)
+    fig.subplots_adjust(bottom=0.30)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved plot to {out_path}")

@@ -27,6 +27,7 @@ from pathlib import Path
 import andes
 import c104
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -235,7 +236,8 @@ def extract_time_and_freq(ss: andes.system.System):
 
 def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | None = None) -> None:
     fig, ax = plt.subplots()
-    ax.plot(t, freq, label="Frequency")
+    ax.set_axisbelow(True)
+    sns.lineplot(x=t, y=freq, ax=ax, label="Frequency")
     if last_cmd_time is not None:
         t_last = float(last_cmd_time)
         ax.axvline(
@@ -250,9 +252,10 @@ def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | No
         float(t_trip),
         color="k",
         linestyle=":",
-        linewidth=1.4,
-        alpha=0.85,
-        label=f"Trip time: t={float(t_trip):.3f} s",
+        linewidth=1.8,
+        alpha=0.95,
+        zorder=10,
+        label=f"Gen 2 trip time: {float(t_trip):.1f} s",
     )
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
