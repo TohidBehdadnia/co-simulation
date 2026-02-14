@@ -44,7 +44,7 @@ def is_shed_command_ioa(ioa: int, shed_buses: list[int]) -> bool:
     return int(bus) in set(int(b) for b in shed_buses)
 
 
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="IEC-104 MITM proxy (c104) delaying only shed commands")
     ap.add_argument("--listen-host", default="127.0.0.1")
     ap.add_argument("--listen-port", type=int, default=2405, help="where the real controller/master connects")
@@ -81,13 +81,16 @@ def main() -> None:
     ap.add_argument("--shed-buses", default="2,3,4,5,6,9", help="comma-separated bus list for shed commands")
     ap.add_argument("--log-messages", action="store_true", default=True, help="log received/forwarded messages (default: enabled)")
     ap.add_argument("--no-log-messages", action="store_false", dest="log_messages", help="disable message logging")
-    args = ap.parse_args()
+    return ap.parse_args()
+
+
+def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None = None) -> None:
 
     shed_buses = [int(x.strip()) for x in args.shed_buses.split(",") if x.strip()]
     ca = int(args.ca)
 
     use_random_per_packet = (args.shed_delay_min is not None) and (args.shed_delay_max is not None)
-    drop_packet_randomly = (args.command_drop_prob is not None) and (0.0 < args.command_drop_prob < 1.0)
+    drop_packet_randomly = (args.command_drop_prob is not None) and (0.0 < args.command_drop_prob <= 1.0)
     rng = random.Random(args.seed) if use_random_per_packet or drop_packet_randomly else None
 
     t0 = time.monotonic()
@@ -529,6 +532,8 @@ def main() -> None:
     log("MITM started")
     try:
         while True:
+            if stop_event is not None and stop_event.is_set():
+                break
             time.sleep(1.0)
     except KeyboardInterrupt:
         print("[iec104-mitm] stopping")
@@ -541,6 +546,11 @@ def main() -> None:
             downstream_server.stop()
         except Exception:
             pass
+
+
+def main() -> None:
+    args = _parse_args()
+    run_mitm_proxy(args)
 
 
 if __name__ == "__main__":

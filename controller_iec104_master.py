@@ -89,8 +89,7 @@ def compute_shed_by_bus(lost_p: float, ppf_by_bus: dict[int, float]) -> dict[int
     return {bus: float(lost_p) * float(ppf) / total for bus, ppf in ppf_by_bus.items()}
 
 
-def main():
-    args = _parse_args()
+def run_controller_once(args: argparse.Namespace) -> None:
 
     expected_buses = list(sorted(set(int(b) for b in shed_buses)))
 
@@ -273,6 +272,11 @@ def main():
 
     time.sleep(0.05)
     client.stop()
+
+
+def main():
+    args = _parse_args()
+    run_controller_once(args)
 
 
 if __name__ == "__main__":

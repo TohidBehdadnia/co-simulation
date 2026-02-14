@@ -7,25 +7,38 @@ All frequency plots are written under the `plots/` folder (auto-created by the s
 ## TCP JSON variant
 
 Scripts:
-- [system_RT.py](system_RT.py): runs the ANDES simulation and executes 3 scenarios (local controller, remote controller over TCP, remote controller via a TCP proxy).
+- [system_RT.py](system_RT.py): runs one selected scenario (`local`, `direct`, `proxy`) and supports repeated runs for statistical studies.
 - [controller_RT.py](controller_RT.py): simple TCP JSON controller (used by `system_RT.py` for the remote scenarios).
 
 Outputs:
-- Plots: `plots/freq_local.png`, `plots/freq_direct.png`, `plots/freq_proxy.png`
-- Data: `results/case_local.npz`, `results/case_direct.npz`, `results/case_proxy.npz`
+- Plots: `plots/freq_<scenario>_<id>.pdf`
+- Data: `results/case_<scenario>/case_<scenario>_<id>.npz`
+
+Run examples:
+- Local, 20 runs: `.venv/bin/python system_RT.py --scenario local --num-runs 20`
+- Direct, 30 runs (ids 101..130): `.venv/bin/python system_RT.py --scenario direct --num-runs 30 --start-id 101`
+- Proxy, 10 runs: `.venv/bin/python system_RT.py --scenario proxy --num-runs 10`
 
 ## IEC 60870-5-104 variant (c104)
 
 This repo includes an IEC-104 version of the same “measure delay → apply load shedding at `t_trip + delay`” experiment.
 
 Scripts:
-- [system_RT_iec104.py](system_RT_iec104.py): runs the ANDES simulation and hosts an IEC-104 outstation (server).
+- [system_RT_iec104.py](system_RT_iec104.py): runs one selected IEC-104 scenario and supports repeated runs for statistical studies.
 - [controller_iec104_master.py](controller_iec104_master.py): IEC-104 master (client) that computes proportional shedding and sends setpoints.
 - [mitm_proxy_iec104.py](mitm_proxy_iec104.py): IEC-104-aware MITM bridge that can delay or drop only the shedding commands.
+- [run_iec104_scenario.py](run_iec104_scenario.py): one-command orchestrator for repeated end-to-end runs (system + controller + optional MITM).
+- [run_batch_experiment.py](run_batch_experiment.py): runs the full batch (direct + multiple MITM delay ranges) and generates the aggregated comparison plot (mean ±95% CI by default; use `--band sd` or `--band both`).
+
+`run_iec104_scenario.py` orchestrates runs **in-process** by creating Python objects for each component (system, controller, proxy) instead of spawning shell commands for each script.
 
 Shedding application modes (outstation):
-- Default: `--shed-mode all_at_once` applies all shed deltas at `t_trip + delay(last command)`.
-- Optional: `--shed-mode per_command` applies each bus's shed delta at its own command-arrival time (stepwise response).
+- Default: `--shed-mode per_command` applies each bus's shed delta at its own command-arrival time (stepwise response).
+- Optional: `--shed-mode all_at_once` applies all shed deltas at `t_trip + delay(last command)`.
+
+Plot behavior:
+- In multi-run mode (`--num-runs > 1`), plots are disabled by default and only `.npz` data files are stored.
+- Use `--plot` to force plot generation in multi-run campaigns.
 
 To make stepwise effects clearly visible, you can intentionally stagger controller commands:
 - `--inter-command-sleep-ms 50` (or env `IEC104_INTER_COMMAND_SLEEP_MS=50`).
@@ -33,6 +46,30 @@ To make stepwise effects clearly visible, you can intentionally stagger controll
 Run (two terminals):
 - Terminal A (outstation + simulation): `.venv/bin/python system_RT_iec104.py --scenario direct`
 - Terminal B (controller): `.venv/bin/python controller_iec104_master.py`
+
+Multi-run example (direct):
+- Terminal A: `.venv/bin/python system_RT_iec104.py --scenario direct --num-runs 20 --start-id 1`
+- Terminal B: start one controller run per outstation run.
+
+One-command multi-run (recommended):
+- Direct (20 runs): `.venv/bin/python run_iec104_scenario.py --scenario direct --num-runs 20 --start-id 1`
+- MITM delay (20 runs): `.venv/bin/python run_iec104_scenario.py --scenario mitm --mitm-mode delay --num-runs 20 --proxy-shed-delay 0.20`
+- MITM drop (20 runs): `.venv/bin/python run_iec104_scenario.py --scenario mitm --mitm-mode drop --num-runs 20 --proxy-command-drop-prob 0.4 --proxy-seed 98`
+
+Batch experiments (single command):
+- Delay batch (direct + 3 delay ranges), 10 runs each, CI95 plot (default):
+	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --out-name freq_comparison_delay_mean.pdf`
+- Delay batch, generate both SD and CI95 plots:
+	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --band both --out-name freq_comparison_delay_mean.pdf`
+- Drop batch (direct + pdrop=0.1/0.5/0.9), 10 runs each, reuse existing direct results:
+	- `.venv/bin/python run_batch_experiment.py --batch drop --num-runs 10 --reuse-direct --out-name freq_comparison_drop_mean.pdf`
+- Plot-only regeneration from existing results (no rerun):
+	- `.venv/bin/python run_batch_experiment.py --batch delay --only-plot --band ci95 --out-name freq_comparison_delay_mean.pdf`
+	- `.venv/bin/python run_batch_experiment.py --batch drop --only-plot --band both --out-name freq_comparison_drop_mean.pdf`
+
+Logs (orchestrator):
+- When using `run_iec104_scenario.py`, the three components write to separate log files under `logs/run_<id>/`:
+	- `system.log`, `controller.log`, and (MITM only) `proxy.log`.
 
 Example (stepwise response):
 - Terminal A: `.venv/bin/python system_RT_iec104.py --scenario direct --shed-mode per_command`
@@ -54,13 +91,17 @@ Run (three terminals):
 
 Notes:
 - The proxy adds delay only to the shedding setpoint commands (IOA `20000+bus`), not to monitoring values.
-- With `--shed-delay-min/--shed-delay-max`, each shed command gets its own delay sampled uniformly; `--seed` makes runs repeatable.
+- With `--shed-delay-min/--shed-delay-max`, each shed command gets its own delay sampled uniformly.
+- When running via `run_iec104_scenario.py`, `--proxy-seed` is treated as a *base seed* and the orchestrator uses `base_seed + run_index` so runs are repeatable but not identical.
 - If you set `IEC104_PORT`, it overrides the scenario default.
 
 Outputs:
-- Plots (direct): `plots/freq_iec104_direct_all.png` or `plots/freq_iec104_direct_percmd.png`
-- Plots (MITM): `plots/freq_iec104_mitm_<mode>_all.png` or `plots/freq_iec104_mitm_<mode>_percmd.png`
-- Data: `results/case_iec104_*.npz`
+- Plots (direct): `plots/freq_iec104_direct_<all|percmd>_<id>.pdf`
+- Plots (MITM): `plots/freq_iec104_mitm_<variant>_<all|percmd>_<id>.pdf`
+- Data (direct): `results/case_iec104_direct_<all|percmd>/case_iec104_direct_<all|percmd>_<id>.npz`
+- Data (MITM delay, fixed): `results/case_iec104_mitm_delay_d<delay>_<all|percmd>/..._<id>.npz` (example `d0p2`)
+- Data (MITM delay, range): `results/case_iec104_mitm_delay_dmin<min>_dmax<max>_<all|percmd>/..._<id>.npz`
+- Data (MITM drop): `results/case_iec104_mitm_drop_pdrop<prob>_<all|percmd>/..._<id>.npz` (example `pdrop0p4`)
 
 ### MITM proxy with drop
 

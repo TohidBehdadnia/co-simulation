@@ -31,7 +31,7 @@ import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parent
 PLOTS_DIR = BASE_DIR / "plots"
-RESULS_DIR = BASE_DIR / "results"
+RESULTS_DIR = BASE_DIR / "results"
 
 # Case files
 ieee14_raw = andes.get_case("ieee14/ieee14.raw")
@@ -56,6 +56,11 @@ def _env_int(name: str, default: int) -> int:
     except Exception:
         return default
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except Exception:
+        return default
 
 def _clamp_tick_ms(value: int) -> int:
     # c104 enforces tickRate_ms >= 50
@@ -239,6 +244,16 @@ def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | No
             linestyle="--",
             label=f"Last command arrival: t={t_last:.3f} s",
         )
+
+    # Trip event marker (keep last so it appears last in the legend)
+    ax.axvline(
+        float(t_trip),
+        color="k",
+        linestyle=":",
+        linewidth=1.4,
+        alpha=0.85,
+        label=f"Trip time: t={float(t_trip):.3f} s",
+    )
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
     ax.set_title(title)
@@ -247,7 +262,10 @@ def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | No
     ax.legend(loc="best")
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = PLOTS_DIR / filename
+    # Always store plots as PDF
+    out_name = Path(str(filename)).name
+    out_name = str(Path(out_name).with_suffix(".pdf"))
+    out_path = PLOTS_DIR / out_name
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved plot to {out_path}")
@@ -255,6 +273,11 @@ def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | No
 
 def _delay_tag(seconds: float) -> str:
     s = f"{seconds:.3f}".rstrip("0").rstrip(".")
+    return s.replace(".", "p")
+
+
+def _prob_tag(value: float) -> str:
+    s = f"{float(value):.3f}".rstrip("0").rstrip(".")
     return s.replace(".", "p")
 
 
@@ -279,6 +302,12 @@ def _parse_args() -> argparse.Namespace:
         help="Max seconds to wait for the start command (0 = wait forever).",
     )
     parser.add_argument(
+        "--timeout",
+        type=float,
+        default=float(_env_float("IEC104_TIMEOUT", 20.0)),
+        help="Max seconds to wait for shed commands after transmitting measurements (default: 20s)."
+    )
+    parser.add_argument(
         "--tick-ms",
         type=int,
         default=_clamp_tick_ms(_env_int("IEC104_TICK_MS", 50)),
@@ -287,7 +316,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--shed-mode",
         choices=["all_at_once", "per_command"],
-        default=os.environ.get("IEC104_SHED_MODE", "all_at_once"),
+        default=os.environ.get("IEC104_SHED_MODE", "per_command"),
         help=(
             "How to apply shedding in the ANDES simulation. "
             "all_at_once: apply all shed deltas at t_trip + delay(last command). "
@@ -304,13 +333,68 @@ def _parse_args() -> argparse.Namespace:
             "drop: randomly drop some commands with a given probability."
         )
     )
+    parser.add_argument(
+        "--mitm-shed-delay",
+        type=float,
+        default=float(_env_float("IEC104_MITM_SHED_DELAY", 0.0)),
+        help="For labeling only: fixed MITM shed delay (seconds) used in delay mode.",
+    )
+    parser.add_argument(
+        "--mitm-shed-delay-min",
+        type=float,
+        default=None,
+        help="For labeling only: min MITM per-packet delay (seconds).",
+    )
+    parser.add_argument(
+        "--mitm-shed-delay-max",
+        type=float,
+        default=None,
+        help="For labeling only: max MITM per-packet delay (seconds).",
+    )
+    parser.add_argument(
+        "--mitm-drop-prob",
+        type=float,
+        default=float(_env_float("IEC104_MITM_DROP_PROB", 0.0)),
+        help="For labeling only: drop probability used in drop mode.",
+    )
+    parser.add_argument(
+        "--num-runs",
+        type=int,
+        default=int(_env_int("IEC104_NUM_RUNS", 1)),
+        help="Number of repeated runs for the selected scenario (default: 1).",
+    )
+    parser.add_argument(
+        "--start-id",
+        type=int,
+        default=int(_env_int("IEC104_START_ID", 1)),
+        help="Starting numeric id used in output filenames (default: 1).",
+    )
+    parser.add_argument(
+        "--plot",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable plotting output. By default, plots are disabled when --num-runs > 1.",
+    )
     return parser.parse_args()
 
 
-def main():
-    andes.config_logger(stream_level=20)
+def _scenario_name(args: argparse.Namespace) -> str:
+    shed_tag = "percmd" if args.shed_mode == "per_command" else "all"
+    if args.scenario == "direct":
+        return f"case_iec104_direct_{shed_tag}"
 
-    args = _parse_args()
+    if args.mitm_mode == "delay":
+        if args.mitm_shed_delay_min is not None and args.mitm_shed_delay_max is not None:
+            delay_tag = f"dmin{_delay_tag(float(args.mitm_shed_delay_min))}_dmax{_delay_tag(float(args.mitm_shed_delay_max))}"
+        else:
+            delay_tag = f"d{_delay_tag(float(args.mitm_shed_delay))}"
+        return f"case_iec104_mitm_delay_{delay_tag}_{shed_tag}"
+
+    drop_tag = f"pdrop{_prob_tag(float(args.mitm_drop_prob))}"
+    return f"case_iec104_mitm_drop_{drop_tag}_{shed_tag}"
+
+
+def _run_once(args: argparse.Namespace, run_id: int) -> None:
     if args.scenario == "mitm":
         print(
             "[iec104-system] NOTE: --scenario mitm only affects output labeling. "
@@ -434,7 +518,7 @@ def main():
 
     print("[iec104-system] measurements transmitted, waiting for shed commands...")
 
-    if not all_received.wait(timeout=20.0):
+    if not all_received.wait(timeout=args.timeout):
         # In per_command mode we can still proceed with partial commands.
         # In MITM drop mode, commands may never arrive: proceed with whatever we got.
         if args.shed_mode == "all_at_once" and not allow_partial_commands:
@@ -468,8 +552,10 @@ def main():
         if received_shed_time_by_bus:
             t_last_rx = max(float(v) for v in received_shed_time_by_bus.values())
             delay = max(0.0, float(t_last_rx) - float(t0_tx))
+            measured_delay = float(delay)
         else:
             delay = 0.0
+            measured_delay = float("nan")
         t_shed = t_trip + float(delay)
 
         shed_dict: dict = {}
@@ -498,7 +584,6 @@ def main():
             ss.TDS.config.tf = t_final
             ss.TDS.run()
         t_arr, f_arr = extract_time_and_freq(ss)
-        measured_delay = float(delay)
         per_bus_delays = None
 
     else:
@@ -549,7 +634,7 @@ def main():
                 merged.append((float(t_evt), dict(upd)))
         events = merged
 
-        measured_delay = max(per_bus_delays_map.values()) if per_bus_delays_map else 0.0
+        measured_delay = max(per_bus_delays_map.values()) if per_bus_delays_map else float("nan")
         per_bus_delays = np.array([per_bus_delays_map.get(int(b), np.nan) for b in expected_buses], dtype=float)
 
         print(
@@ -571,35 +656,75 @@ def main():
         run_multi_stage_tds(ss, events)
         t_arr, f_arr = extract_time_and_freq(ss)
 
-    shed_tag = "percmd" if args.shed_mode == "per_command" else "all"
-    mitm_mode_tag = args.mitm_mode if args.scenario == "mitm" else "direct"
-
     if args.scenario == "direct":
         title = "Frequency - IEC-104 (direct)"
-        png_name = f"freq_iec104_direct_{shed_tag}.png"
-        npz_name = f"case_iec104_direct_{shed_tag}.npz"
+        scenario_name = _scenario_name(args)
+        plot_name = f"freq_iec104_direct_{'percmd' if args.shed_mode == 'per_command' else 'all'}_{int(run_id)}.pdf"
     else:
-        if args.mitm_mode == "delay" or args.mitm_mode == "drop":
-            title = f"Frequency - IEC-104 (MITM - {mitm_mode_tag})"
-            png_name = f"freq_iec104_mitm_{mitm_mode_tag}_{shed_tag}.png"
-            npz_name = f"case_iec104_mitm_{mitm_mode_tag}_{shed_tag}.npz"
+        title = f"Frequency - IEC-104 (MITM - {args.mitm_mode})"
+        scenario_name = _scenario_name(args)
+        plot_name = f"freq_iec104_mitm_{args.mitm_mode}_{'percmd' if args.shed_mode == 'per_command' else 'all'}_{int(run_id)}.pdf"
 
     if args.shed_mode == "per_command":
         title = title + " [per-command shedding]"
 
-    plot_frequency(t_arr, f_arr, title, png_name, last_cmd_time=float(t_trip + measured_delay))
-    RESULS_DIR.mkdir(parents=True, exist_ok=True)
+    last_cmd_time = None
+    try:
+        if np.isfinite(float(measured_delay)):
+            last_cmd_time = float(t_trip + float(measured_delay))
+    except Exception:
+        last_cmd_time = None
+
+    last_cmd_time_value = float(last_cmd_time) if last_cmd_time is not None else float("nan")
+
+    if bool(getattr(args, "plot_enabled", True)):
+        plot_frequency(t_arr, f_arr, title, plot_name, last_cmd_time=last_cmd_time)
+    scenario_dir = RESULTS_DIR / scenario_name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    npz_name = f"{scenario_name}_{int(run_id)}.npz"
     if per_bus_delays is None:
-        np.savez(RESULS_DIR / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
-    else:
         np.savez(
-            RESULS_DIR / npz_name,
+            scenario_dir / npz_name,
             t=t_arr,
             freq=f_arr,
             measured_delay=float(measured_delay),
+            last_cmd_time=float(last_cmd_time_value),
+        )
+    else:
+        np.savez(
+            scenario_dir / npz_name,
+            t=t_arr,
+            freq=f_arr,
+            measured_delay=float(measured_delay),
+            last_cmd_time=float(last_cmd_time_value),
             buses=np.array(expected_buses, dtype=int),
             per_bus_delay=per_bus_delays,
         )
+    print(f"[iec104-system] saved run_id={int(run_id)} to {scenario_dir / npz_name}", flush=True)
+
+
+def main():
+    andes.config_logger(stream_level=20)
+
+    args = _parse_args()
+    if int(args.num_runs) <= 0:
+        raise ValueError("--num-runs must be > 0")
+
+    if args.plot is None:
+        args.plot_enabled = bool(int(args.num_runs) == 1)
+    else:
+        args.plot_enabled = bool(args.plot)
+
+    print(
+        f"[iec104-system] scenario={args.scenario} mitm_mode={args.mitm_mode} "
+        f"shed_mode={args.shed_mode} num_runs={int(args.num_runs)} start_id={int(args.start_id)} "
+        f"plot={bool(args.plot_enabled)}",
+        flush=True,
+    )
+
+    for run_id in range(int(args.start_id), int(args.start_id) + int(args.num_runs)):
+        print(f"[iec104-system] starting run_id={int(run_id)}", flush=True)
+        _run_once(args, run_id)
 
 
 if __name__ == "__main__":

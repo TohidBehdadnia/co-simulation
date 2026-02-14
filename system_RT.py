@@ -24,6 +24,7 @@ Each case:
 
 import json
 import socket
+import argparse
 from pathlib import Path
 import time
 
@@ -234,6 +235,16 @@ def plot_frequency_from_arrays(t, freq, title, filename, y_limits=None, last_cmd
             linestyle="--",
             label=f"Last command arrival: t={t_last:.3f} s",
         )
+
+    # Trip event marker (keep last so it appears last in the legend)
+    ax.axvline(
+        float(t_trip),
+        color="k",
+        linestyle=":",
+        linewidth=1.4,
+        alpha=0.85,
+        label=f"Trip time: t={float(t_trip):.3f} s",
+    )
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
     ax.set_title(title)
@@ -244,79 +255,97 @@ def plot_frequency_from_arrays(t, freq, title, filename, y_limits=None, last_cmd
     ax.legend(loc="best")
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = PLOTS_DIR / filename
+    # Always store plots as PDF
+    out_name = Path(str(filename)).name
+    out_name = str(Path(out_name).with_suffix(".pdf"))
+    out_path = PLOTS_DIR / out_name
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to {out_path}")
 
     plt.close(fig)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a single TCP JSON scenario multiple times")
+    parser.add_argument(
+        "--scenario",
+        choices=["local", "direct", "proxy"],
+        default="local",
+        help="Scenario to run (default: local).",
+    )
+    parser.add_argument(
+        "--num-runs",
+        type=int,
+        default=1,
+        help="Number of repeated runs for the selected scenario (default: 1).",
+    )
+    parser.add_argument(
+        "--start-id",
+        type=int,
+        default=1,
+        help="Starting numeric id used in output filenames (default: 1).",
+    )
+    return parser.parse_args()
+
+
+def _run_single_scenario(scenario: str, lost_p: float, loads: list[dict]):
+    if scenario == "local":
+        t0_local = time.perf_counter()
+        shed = compute_load_shedding(lost_p, loads)
+        t1_local = time.perf_counter()
+        delay = t1_local - t0_local
+        title = "Frequency - local controller (no TCP)"
+    elif scenario == "direct":
+        delay, shed = call_remote_controller(
+            lost_p, loads, CTRL_HOST, CTRL_PORT_DIRECT, "direct"
+        )
+        title = "Frequency - remote controller (direct TCP)"
+    else:
+        delay, shed = call_remote_controller(
+            lost_p, loads, CTRL_HOST, CTRL_PORT_PROXY, "proxy"
+        )
+        title = "Frequency - remote controller (TCP via proxy)"
+
+    t_shed = t_trip + delay
+    ss = build_system(t_shed=t_shed, shed_dict=shed)
+    run_two_stage_tds(ss)
+    t_arr, f_arr = extract_time_and_freq(ss)
+    return t_arr, f_arr, float(delay), float(t_shed), title
+
+
+def _save_run_outputs(scenario: str, run_id: int, t_arr, f_arr, measured_delay: float, t_shed: float, title: str) -> None:
+    scenario_name = f"case_{scenario}"
+    scenario_dir = RESULTS_DIR / scenario_name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+
+    npz_name = f"{scenario_name}_{int(run_id)}.npz"
+    np.savez(scenario_dir / npz_name, t=t_arr, freq=f_arr, measured_delay=float(measured_delay))
+
+    plot_frequency_from_arrays(
+        t_arr,
+        f_arr,
+        title,
+        f"freq_{scenario}_{int(run_id)}.pdf",
+        y_limits=FREQ_Y_LIMS,
+        last_cmd_time=float(t_shed),
+    )
+    print(f"Saved run {run_id} to {scenario_dir / npz_name}")
+
+
 def main():
     andes.config_logger(stream_level=20)
+    args = _parse_args()
+    if args.num_runs <= 0:
+        raise ValueError("--num-runs must be > 0")
 
     lost_p, loads = build_info_system()
+    print(f"[main] scenario={args.scenario} num_runs={args.num_runs} start_id={args.start_id}")
     print(f"[main] lost generation from GENROU_2: {lost_p:.3f} pu")
 
-    # Case A: local controller
-    t0_local = time.perf_counter()
-    shed_local = compute_load_shedding(lost_p, loads)
-    t1_local = time.perf_counter()
-    delay_local = t1_local - t0_local
-    t_shed_local = t_trip + delay_local
-    print(f"[Case A] local delay: {delay_local:.6f} s, "
-          f"shedding at t = {t_shed_local:.6f} s")
-
-    ss_local = build_system(t_shed=t_shed_local, shed_dict=shed_local)
-    run_two_stage_tds(ss_local)
-    t_local, f_local = extract_time_and_freq(ss_local)
-    plot_frequency_from_arrays(
-        t_local, f_local,
-        "Frequency - local controller (no TCP)",
-        "freq_local.png",
-        y_limits=FREQ_Y_LIMS,
-        last_cmd_time=float(t_shed_local),
-    )
-    np.savez(RESULTS_DIR / "case_local.npz", t=t_local, freq=f_local)
-
-    # Case B: remote controller direct TCP
-    delay_direct, shed_direct = call_remote_controller(
-        lost_p, loads, CTRL_HOST, CTRL_PORT_DIRECT, "Case B direct"
-    )
-    t_shed_direct = t_trip + delay_direct
-    print(f"[Case B] direct TCP delay: {delay_direct:.6f} s, "
-          f"shedding at t = {t_shed_direct:.6f} s")
-
-    ss_direct = build_system(t_shed=t_shed_direct, shed_dict=shed_direct)
-    run_two_stage_tds(ss_direct)
-    t_direct, f_direct = extract_time_and_freq(ss_direct)
-    plot_frequency_from_arrays(
-        t_direct, f_direct,
-        "Frequency - remote controller (direct TCP)",
-        "freq_direct.png",
-        y_limits=FREQ_Y_LIMS,
-        last_cmd_time=float(t_shed_direct),
-    )
-    np.savez(RESULTS_DIR / "case_direct.npz", t=t_direct, freq=f_direct)
-
-    # Case C: remote controller through proxy
-    delay_proxy, shed_proxy = call_remote_controller(
-        lost_p, loads, CTRL_HOST, CTRL_PORT_PROXY, "Case C proxy"
-    )
-    t_shed_proxy = t_trip + delay_proxy
-    print(f"[Case C] proxy TCP delay: {delay_proxy:.6f} s, "
-          f"shedding at t = {t_shed_proxy:.6f} s")
-
-    ss_proxy = build_system(t_shed=t_shed_proxy, shed_dict=shed_proxy)
-    run_two_stage_tds(ss_proxy)
-    t_proxy, f_proxy = extract_time_and_freq(ss_proxy)
-    plot_frequency_from_arrays(
-        t_proxy, f_proxy,
-        "Frequency - remote controller (TCP via proxy)",
-        "freq_proxy.png",
-        y_limits=FREQ_Y_LIMS,
-        last_cmd_time=float(t_shed_proxy),
-    )
-    np.savez(RESULTS_DIR / "case_proxy.npz", t=t_proxy, freq=f_proxy)
+    for run_id in range(int(args.start_id), int(args.start_id) + int(args.num_runs)):
+        print(f"[main] starting run_id={run_id}")
+        t_arr, f_arr, delay, t_shed, title = _run_single_scenario(args.scenario, lost_p, loads)
+        _save_run_outputs(args.scenario, run_id, t_arr, f_arr, delay, t_shed, title)
 
 
 if __name__ == "__main__":
