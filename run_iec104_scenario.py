@@ -3,11 +3,16 @@ import argparse
 import contextlib
 import multiprocessing
 import os
+import shlex
+import shutil
+import signal
+import subprocess
 import traceback
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import controller_iec104_master as iec104_controller
 import mitm_proxy_iec104 as iec104_mitm
@@ -80,6 +85,117 @@ def _proc_run_proxy(config: "IEC104MitmConfig", stop_flag, log_path: str) -> Non
             traceback.print_exc(file=log_file)
             log_file.flush()
             os._exit(1)
+
+
+@dataclass
+class _TcpdumpCapture:
+    proc: subprocess.Popen
+    stderr_file: TextIO
+    pcap_path: Path
+
+
+def _build_default_tcpdump_filter(args: argparse.Namespace) -> str:
+    # Capture both legs by default:
+    # - controller <-> proxy (listen_port, typically 2405)
+    # - proxy/direct controller <-> outstation (upstream_port, typically 2404)
+    ports: set[int] = {
+        int(getattr(args, "upstream_port", 2404)),
+        int(getattr(args, "listen_port", 2405)),
+    }
+    return " or ".join([f"tcp port {p}" for p in sorted(ports)])
+
+
+def _start_tcpdump_capture(args: argparse.Namespace, run_log_dir: Path) -> _TcpdumpCapture | None:
+    if not bool(getattr(args, "tcpdump", True)):
+        return None
+
+    tcpdump_bin = shutil.which("tcpdump")
+    if tcpdump_bin is None:
+        print("[orchestrator] tcpdump not found in PATH; skipping packet capture", flush=True)
+        return None
+
+    iface = str(getattr(args, "tcpdump_interface", "any"))
+    snaplen = int(getattr(args, "tcpdump_snaplen", 0))
+
+    # Filter expression: user-provided overrides default.
+    filter_expr = getattr(args, "tcpdump_filter", None)
+    if filter_expr is None:
+        filter_expr = _build_default_tcpdump_filter(args)
+    filter_expr = str(filter_expr).strip()
+
+    pcap_path = run_log_dir / "traffic.pcap"
+    stderr_path = run_log_dir / "tcpdump.log"
+    cmd_path = run_log_dir / "tcpdump_cmd.txt"
+
+    cmd: list[str] = [
+        tcpdump_bin,
+        "-i",
+        iface,
+        "-nn",
+        "-s",
+        str(snaplen),
+        "-U",
+        "-w",
+        str(pcap_path),
+    ]
+    if filter_expr:
+        cmd.extend(shlex.split(filter_expr))
+
+    cmd_path.write_text(" ".join([shlex.quote(x) for x in cmd]) + "\n", encoding="utf-8")
+
+    stderr_f = open(stderr_path, "w", encoding="utf-8", buffering=1)
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_f,
+            start_new_session=True,
+        )
+    except Exception:
+        stderr_f.close()
+        raise
+
+    # If tcpdump fails immediately (missing permissions, bad iface, etc.), stop and keep the log.
+    time.sleep(0.2)
+    if proc.poll() is not None:
+        print(
+            f"[orchestrator] tcpdump exited early (code={proc.returncode}); see {stderr_path}",
+            flush=True,
+        )
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=0.5)
+        try:
+            stderr_f.close()
+        finally:
+            return None
+
+    print(f"[orchestrator] tcpdump: {pcap_path}", flush=True)
+    return _TcpdumpCapture(proc=proc, stderr_file=stderr_f, pcap_path=pcap_path)
+
+
+def _stop_tcpdump_capture(capture: _TcpdumpCapture | None) -> None:
+    if capture is None:
+        return
+
+    try:
+        if capture.proc.poll() is None:
+            # Graceful stop so the pcap is finalized.
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(int(capture.proc.pid), signal.SIGINT)
+            try:
+                capture.proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(int(capture.proc.pid), signal.SIGTERM)
+                try:
+                    capture.proc.wait(timeout=3.0)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(ProcessLookupError, PermissionError):
+                        os.killpg(int(capture.proc.pid), signal.SIGKILL)
+                    capture.proc.wait(timeout=3.0)
+    finally:
+        with contextlib.suppress(Exception):
+            capture.stderr_file.close()
 
 
 @dataclass
@@ -182,6 +298,16 @@ class IEC104MitmProxyComponent:
 
 class IEC104ScenarioOrchestrator:
     def __init__(self, args: argparse.Namespace):
+        # Some callers (e.g. run_batch_experiment.py) instantiate this class directly with a
+        # hand-built argparse.Namespace. Ensure new flags have sane defaults.
+        if not hasattr(args, "tcpdump"):
+            setattr(args, "tcpdump", True)
+        if not hasattr(args, "tcpdump_interface"):
+            setattr(args, "tcpdump_interface", "any")
+        if not hasattr(args, "tcpdump_filter"):
+            setattr(args, "tcpdump_filter", None)
+        if not hasattr(args, "tcpdump_snaplen"):
+            setattr(args, "tcpdump_snaplen", 0)
         self.args = args
 
     def _controller_port(self) -> int:
@@ -258,6 +384,8 @@ class IEC104ScenarioOrchestrator:
             run_log_dir = base_log_dir / f"run_{int(run_id)}"
             _ensure_dir(run_log_dir)
 
+            tcpdump_capture = None
+
             system_cfg = self._build_system().config
             controller_cfg = self._build_controller().config
             proxy_cfg = self._build_proxy().config if self.args.scenario == "mitm" else None
@@ -275,6 +403,8 @@ class IEC104ScenarioOrchestrator:
             proxy_proc = None
 
             try:
+                tcpdump_capture = _start_tcpdump_capture(self.args, run_log_dir)
+
                 if proxy_cfg is not None:
                     print(f"[orchestrator] proxy log: {proxy_log}", flush=True)
                     proxy_proc = ctx.Process(
@@ -295,7 +425,7 @@ class IEC104ScenarioOrchestrator:
                 )
                 system_proc.start()
 
-                time.sleep(0.4)
+                time.sleep(0.5)
                 print(f"[orchestrator] controller log: {controller_log}", flush=True)
                 controller_proc = ctx.Process(
                     target=_proc_run_controller,
@@ -341,6 +471,8 @@ class IEC104ScenarioOrchestrator:
                     if proxy_proc.is_alive():
                         proxy_proc.terminate()
                         proxy_proc.join(timeout=5.0)
+
+                _stop_tcpdump_capture(tcpdump_capture)
 
         print("\n[orchestrator] all runs completed", flush=True)
         return 0
@@ -402,6 +534,32 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         default=str(DEFAULT_LOG_DIR),
         help="Directory for per-run component logs (default: ./logs).",
+    )
+
+    parser.add_argument(
+        "--tcpdump",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Capture a per-run tcpdump into logs/run_<id>/traffic.pcap (requires tcpdump permissions).",
+    )
+    parser.add_argument(
+        "--tcpdump-interface",
+        default="any",
+        help="Interface for tcpdump (default: any).",
+    )
+    parser.add_argument(
+        "--tcpdump-filter",
+        default=None,
+        help=(
+            "tcpdump filter expression. Default captures tcp ports used by the scenario "
+            "(direct: upstream port; mitm: upstream+listen ports)."
+        ),
+    )
+    parser.add_argument(
+        "--tcpdump-snaplen",
+        type=int,
+        default=0,
+        help="tcpdump snaplen (-s). Use 0 for full packets (default).",
     )
 
     return parser

@@ -70,6 +70,12 @@ Batch experiments (single command):
 Logs (orchestrator):
 - When using `run_iec104_scenario.py`, the three components write to separate log files under `logs/run_<id>/`:
 	- `system.log`, `controller.log`, and (MITM only) `proxy.log`.
+	- Per-run packet capture (if enabled): `traffic.pcap` (plus `tcpdump.log` and `tcpdump_cmd.txt`).
+
+Packet capture notes:
+- `run_iec104_scenario.py` enables tcpdump by default. Disable with `--no-tcpdump`.
+- Capturing packets usually requires running with sufficient privileges (e.g. `sudo` or granting `tcpdump` the needed capabilities).
+- The default filter captures both IEC-104 TCP ports `2404` and `2405`. Override with `--tcpdump-filter`.
 
 Example (stepwise response):
 - Terminal A: `.venv/bin/python system_RT_iec104.py --scenario direct --shed-mode per_command`

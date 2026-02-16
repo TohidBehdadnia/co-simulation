@@ -105,30 +105,7 @@ def build_info_system():
 
 def build_system(t_shed: float, shed_dict: dict) -> andes.system.System:
     """Build an ANDES system and schedule shedding at t_shed by adjusting PQ.Ppf."""
-    ss = andes.load(ieee14_raw, addfile=ieee14_dyr, setup=False)
-
-    ss.add(
-        "Toggle",
-        dict(
-            name="Trip_GENROU_2",
-            model="SynGen",
-            dev="GENROU_2",
-            t=t_trip,
-        ),
-    )
-
-    ss.setup()
-
-    if len(ss.Toggle.u.v) >= 2:
-        ss.Toggle.u.v[[0, 1]] = 0
-
-    ss.PQ.config.p2p = 1
-    ss.PQ.config.q2q = 1
-    ss.PQ.config.p2z = 0
-    ss.PQ.config.q2z = 0
-    ss.PQ.pq2z = 0
-
-    ss.PFlow.run()
+    ss = _build_andes_base_system()
 
     pq_ids = list(shed_dict.keys())
     pq_p_before = ss.PQ.get(src="Ppf", idx=pq_ids, attr="v")
@@ -144,8 +121,8 @@ def build_system(t_shed: float, shed_dict: dict) -> andes.system.System:
     return ss
 
 
-def build_base_system() -> andes.system.System:
-    """Build an ANDES system (trip scheduled) without any shedding applied yet."""
+def _build_andes_base_system() -> andes.system.System:
+    """Build the common ANDES system used by all IEC-104 scenarios."""
     ss = andes.load(ieee14_raw, addfile=ieee14_dyr, setup=False)
 
     ss.add(
@@ -171,6 +148,11 @@ def build_base_system() -> andes.system.System:
 
     ss.PFlow.run()
     return ss
+
+
+def build_base_system() -> andes.system.System:
+    """Build an ANDES system (trip scheduled) without any shedding applied yet."""
+    return _build_andes_base_system()
 
 
 def run_multi_stage_tds(ss: andes.system.System, events: list[tuple[float, dict]]) -> None:

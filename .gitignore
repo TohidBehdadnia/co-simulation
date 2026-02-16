@@ -210,4 +210,4 @@ __marimo__/
 *.lst
 ieee14_out.txt
 ieee14_out.npz
-
+logs/

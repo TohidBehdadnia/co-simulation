@@ -347,7 +347,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
     if np.isfinite(xmin) and np.isfinite(xmax):
         # Guard against extremely long horizons creating thousands of ticks.
         if (xmax - xmin) <= 60.0:
-            tick_start = max(1, int(np.ceil(xmin)))
+            tick_start = max(0, int(np.ceil(xmin)))
             tick_end = int(np.floor(xmax))
             if tick_end >= tick_start:
                 ax.set_xticks(np.arange(tick_start, tick_end + 1, 1))

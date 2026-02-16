@@ -158,7 +158,7 @@ def main() -> int:
         help="Skip rerunning simulations and only generate the plot from existing results.",
     )
     ap.add_argument("--out-name", default="freq_comparison_mean_ci.pdf")
-    ap.add_argument("--title", default="IEC-104 frequency")
+    ap.add_argument("--title", default="Frequency in IEC 104 Load Shedding VS MITM attacks")
     ap.add_argument(
         "--band",
         choices=["ci95", "sd", "both"],
@@ -277,7 +277,7 @@ def main() -> int:
 
         # Keep user-provided titles as-is; for the default title, append the band.
         title = str(args.title)
-        if title == "IEC-104 frequency":
+        if title == "Frequency in IEC 104 Load Shedding VS MITM attacks":
             title = title + (" (mean ±95% CI)" if b == "ci95" else " (mean ±1 SD)")
 
         plot_args = argparse.Namespace(
@@ -287,7 +287,6 @@ def main() -> int:
             band=b,
         )
         plotter_comparator.plot_comparison(plot_args)
-        print(f"Saved plot to {PLOTS_DIR / out_name}")
     return 0
 
 
