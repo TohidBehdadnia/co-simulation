@@ -360,6 +360,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Enable plotting output. By default, plots are disabled when --num-runs > 1.",
     )
+    parser.add_argument(
+        "--debug-timing",
+        action="store_true",
+        default=bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))),
+        help="Print outstation timing diagnostics (perf_counter-based).",
+    )
     return parser.parse_args()
 
 
@@ -404,6 +410,7 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
 
     allow_partial_commands = bool(args.scenario == "mitm" and args.mitm_mode == "drop")
 
+
     # Set once the measurement snapshot is successfully transmitted.
     tx_t0: dict[str, float | None] = {"t0": None}
 
@@ -421,6 +428,20 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
 
         received_shed_time_by_bus[bus] = float(t_rx)
 
+        if bool(getattr(args, "debug_timing", False)):
+            t0_tx_dbg = tx_t0.get("t0")
+            if t0_tx_dbg is not None:
+                dt = float(t_rx) - float(t0_tx_dbg)
+                print(
+                    f"[iec104-system][timing] rx_cmd bus={int(bus):>2} t_rx={float(t_rx):.6f} dt_since_meas_tx={dt:.6f}s",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[iec104-system][timing] rx_cmd bus={int(bus):>2} t_rx={float(t_rx):.6f} (meas_tx_t0 not set)",
+                    flush=True,
+                )
+
         if all(bus in received_shed_by_bus for bus in expected_buses):
             all_received.set()
 
@@ -432,6 +453,76 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
 
     # Start outstation
     server = c104.Server(ip=IEC104_IP, port=IEC104_PORT, tick_rate_ms=_clamp_tick_ms(int(args.tick_ms)))
+
+    def _raw_is_asdu(data: bytes, type_id: int) -> bool:
+        try:
+            s = str(c104.explain_bytes(apdu=data))
+            return f"ASDU={int(type_id)}" in s
+        except Exception:
+            return False
+
+    raw_seen: dict[str, bool | int] = {"tx_meas": False, "rx_cmd": False, "tx_n": 0, "rx_n": 0}
+
+    raw_max = 0
+    if bool(getattr(args, "debug_timing", False)):
+        raw_max = 20
+        try:
+            raw_max = int(os.environ.get("IEC104_DEBUG_RAW_MAX", "20"))
+        except Exception:
+            raw_max = 20
+
+    def _sv_on_send_raw(server: c104.Server, data: bytes) -> None:
+        # Debug-only: log raw outgoing frames (and the first measurement ASDU).
+        if (not bool(raw_seen["tx_meas"])):
+            try:
+                msg0 = str(c104.explain_bytes(apdu=data))
+            except Exception:
+                msg0 = ""
+            if ("M_ME_NC_1" in msg0) and ("SPONTANEOUS" in msg0) and ("1st IOA 9000" in msg0 or "IOA 9000" in msg0):
+                raw_seen["tx_meas"] = True
+                if bool(getattr(args, "debug_timing", False)):
+                    print(f"[iec104-system][timing][raw] tx_asdu13 t={time.perf_counter():.6f}", flush=True)
+
+        if int(raw_max) > 0:
+            try:
+                if int(raw_seen["tx_n"]) < int(raw_max):
+                    raw_seen["tx_n"] = int(raw_seen["tx_n"]) + 1
+                    try:
+                        msg = str(c104.explain_bytes(apdu=data))
+                    except Exception:
+                        msg = "<unparsed>"
+                    print(f"[iec104-system][timing][raw] tx t={time.perf_counter():.6f} {msg}", flush=True)
+            except Exception:
+                pass
+
+    def _sv_on_receive_raw(server: c104.Server, data: bytes) -> None:
+        if int(raw_max) > 0:
+            try:
+                if int(raw_seen["rx_n"]) < int(raw_max):
+                    raw_seen["rx_n"] = int(raw_seen["rx_n"]) + 1
+                    try:
+                        msg = str(c104.explain_bytes(apdu=data))
+                    except Exception:
+                        msg = "<unparsed>"
+                    print(f"[iec104-system][timing][raw] rx t={time.perf_counter():.6f} {msg}", flush=True)
+            except Exception:
+                pass
+
+        if (not bool(raw_seen["rx_cmd"])) and _raw_is_asdu(data, 50):
+            raw_seen["rx_cmd"] = True
+            if bool(getattr(args, "debug_timing", False)):
+                print(f"[iec104-system][timing][raw] rx_asdu50 t={time.perf_counter():.6f}", flush=True)
+
+    try:
+        server.on_send_raw(callable=_sv_on_send_raw)
+    except Exception as exc:
+        if bool(getattr(args, "debug_timing", False)):
+            print(f"[iec104-system][timing][raw] WARNING: failed to register on_send_raw: {exc}", flush=True)
+    try:
+        server.on_receive_raw(callable=_sv_on_receive_raw)
+    except Exception as exc:
+        if bool(getattr(args, "debug_timing", False)):
+            print(f"[iec104-system][timing][raw] WARNING: failed to register on_receive_raw: {exc}", flush=True)
     station = server.add_station(common_address=IEC104_CA)
     if station is None:
         raise RuntimeError("Failed to add IEC-104 station")
@@ -459,6 +550,11 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
 
     server.start()
     print(f"[iec104-system] outstation listening on {IEC104_IP}:{IEC104_PORT} (CA={IEC104_CA})")
+    if bool(getattr(args, "debug_timing", False)):
+        print(
+            f"[iec104-system][timing] tick_ms={_clamp_tick_ms(int(args.tick_ms))} wait_start={bool(args.wait_start)} shed_mode={args.shed_mode}",
+            flush=True,
+        )
 
     # Optional but helps some masters: signal station initialized.
     try:
@@ -490,13 +586,20 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
     t_tx_wait0 = time.perf_counter()
     t0 = None
     while True:
-        t_try = time.perf_counter()
+        # OLD behavior: start the timer right before attempting the transmit.
+        t_call0 = time.perf_counter()
         ok = server.transmit_batch(batch)
+        t_call1 = time.perf_counter()
         if ok:
-            t0 = t_try
+            t0 = float(t_call0)
             tx_t0["t0"] = float(t0)
+            if bool(getattr(args, "debug_timing", False)):
+                print(
+                    f"[iec104-system][timing] meas_tx_ok t0={float(t0):.6f} (ref=call_start; transmit_batch call_dt={(t_call1 - t_call0):.6f}s)",
+                    flush=True,
+                )
             break
-        if t_try - t_tx_wait0 > 20.0:
+        if t_call0 - t_tx_wait0 > 20.0:
             server.stop()
             raise TimeoutError("Failed to transmit measurements (no master?) within 20s")
         time.sleep(0.01)
@@ -542,6 +645,24 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
             delay = 0.0
             measured_delay = float("nan")
         t_shed = t_trip + float(delay)
+
+        if bool(getattr(args, "debug_timing", False)):
+            if received_shed_time_by_bus:
+                t_first_rx = min(float(v) for v in received_shed_time_by_bus.values())
+                t_last_rx = max(float(v) for v in received_shed_time_by_bus.values())
+                print(
+                    "[iec104-system][timing] "
+                    f"t_meas_tx={float(t0_tx):.6f} "
+                    f"t_first_cmd_rx={t_first_rx:.6f} (dt={(t_first_rx - float(t0_tx)):.6f}s) "
+                    f"t_last_cmd_rx={t_last_rx:.6f} (dt={(t_last_rx - float(t0_tx)):.6f}s) "
+                    f"measured_delay={float(measured_delay):.6f}s",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[iec104-system][timing] t_meas_tx={float(t0_tx):.6f} (no commands received)",
+                    flush=True,
+                )
 
         shed_dict: dict = {}
         for bus, shed_amt in received_shed_by_bus.items():
@@ -621,6 +742,22 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
 
         measured_delay = max(per_bus_delays_map.values()) if per_bus_delays_map else float("nan")
         per_bus_delays = np.array([per_bus_delays_map.get(int(b), np.nan) for b in expected_buses], dtype=float)
+
+        if bool(getattr(args, "debug_timing", False)):
+            if per_bus_delays_map and np.isfinite(float(measured_delay)):
+                t_last_rx_est = float(t0_tx) + float(measured_delay)
+                print(
+                    "[iec104-system][timing] "
+                    f"t_meas_tx={float(t0_tx):.6f} "
+                    f"t_last_cmd_rx~={t_last_rx_est:.6f} (dt={(t_last_rx_est - float(t0_tx)):.6f}s) "
+                    f"measured_delay={float(measured_delay):.6f}s",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[iec104-system][timing] t_meas_tx={float(t0_tx):.6f} (no commands received)",
+                    flush=True,
+                )
 
         print(
             f"[iec104-system] per_command shedding events: n={len(events)} last_delay={measured_delay:.6f} s",

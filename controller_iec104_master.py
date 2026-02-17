@@ -76,6 +76,12 @@ def _parse_args() -> argparse.Namespace:
         default=float(os.environ.get("IEC104_INTER_COMMAND_SLEEP_MS", "0")),
         help="Optional sleep between successive shed commands (ms). Use to make per-command effects visible.",
     )
+    ap.add_argument(
+        "--debug-timing",
+        action="store_true",
+        default=bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))),
+        help="Print controller timing diagnostics (perf_counter-based).",
+    )
     return ap.parse_args()
 
 
@@ -99,6 +105,10 @@ def run_controller_once(args: argparse.Namespace) -> None:
     got_ppf_rx: set[int] = set()
     sent = False
 
+    # perf_counter timestamps for the most recent callback per signal.
+    lost_p_rx_t: float | None = None
+    ppf_rx_t_by_bus: dict[int, float] = {}
+
     rx_event = threading.Event()
     open_event = threading.Event()
 
@@ -113,6 +123,63 @@ def run_controller_once(args: argparse.Namespace) -> None:
     conn = client.add_connection(ip=args.ip, port=int(args.port), init=c104.Init.NONE)
     if conn is None:
         raise RuntimeError("Failed to add IEC-104 connection")
+
+    def _raw_is_asdu(data: bytes, type_id: int) -> bool:
+        try:
+            s = str(c104.explain_bytes(apdu=data))
+            # Observed format includes 'ASDU=13' etc.
+            return f"ASDU={int(type_id)}" in s
+        except Exception:
+            return False
+
+    raw_seen: dict[str, bool | int] = {"rx_meas": False, "tx_cmd": False, "rx_n": 0, "tx_n": 0}
+    if bool(getattr(args, "debug_timing", False)):
+        raw_max = 20
+        try:
+            raw_max = int(os.environ.get("IEC104_DEBUG_RAW_MAX", "20"))
+        except Exception:
+            raw_max = 20
+
+        def _on_rx_raw(connection: c104.Connection, data: bytes) -> None:
+            try:
+                if int(raw_seen["rx_n"]) < int(raw_max):
+                    raw_seen["rx_n"] = int(raw_seen["rx_n"]) + 1
+                    try:
+                        msg = str(c104.explain_bytes(apdu=data))
+                    except Exception:
+                        msg = "<unparsed>"
+                    print(f"[iec104-controller][timing][raw] rx t={time.perf_counter():.6f} {msg}", flush=True)
+            except Exception:
+                pass
+
+            if (not bool(raw_seen["rx_meas"])) and _raw_is_asdu(data, 13):
+                raw_seen["rx_meas"] = True
+                print(f"[iec104-controller][timing][raw] rx_asdu13 t={time.perf_counter():.6f}", flush=True)
+
+        def _on_tx_raw(connection: c104.Connection, data: bytes) -> None:
+            try:
+                if int(raw_seen["tx_n"]) < int(raw_max):
+                    raw_seen["tx_n"] = int(raw_seen["tx_n"]) + 1
+                    try:
+                        msg = str(c104.explain_bytes(apdu=data))
+                    except Exception:
+                        msg = "<unparsed>"
+                    print(f"[iec104-controller][timing][raw] tx t={time.perf_counter():.6f} {msg}", flush=True)
+            except Exception:
+                pass
+
+            if (not bool(raw_seen["tx_cmd"])) and _raw_is_asdu(data, 50):
+                raw_seen["tx_cmd"] = True
+                print(f"[iec104-controller][timing][raw] tx_asdu50 t={time.perf_counter():.6f}", flush=True)
+
+        try:
+            conn.on_receive_raw(callable=_on_rx_raw)
+        except Exception as exc:
+            print(f"[iec104-controller][timing][raw] WARNING: failed to register on_receive_raw: {exc}", flush=True)
+        try:
+            conn.on_send_raw(callable=_on_tx_raw)
+        except Exception as exc:
+            print(f"[iec104-controller][timing][raw] WARNING: failed to register on_send_raw: {exc}", flush=True)
 
     station = conn.add_station(common_address=int(args.ca))
     if station is None:
@@ -186,13 +253,35 @@ def run_controller_once(args: argparse.Namespace) -> None:
                 time.sleep(inter_sleep_s)
         t1 = time.perf_counter()
 
+        if bool(getattr(args, "debug_timing", False)):
+            rx_ts = []
+            if lost_p_rx_t is not None:
+                rx_ts.append(float(lost_p_rx_t))
+            rx_ts.extend(float(v) for v in ppf_rx_t_by_bus.values())
+            t_last_meas = max(rx_ts) if rx_ts else None
+            if t_last_meas is None:
+                print(
+                    f"[iec104-controller][timing] cmd_window={(t1 - t0):.6f}s (no measurement rx timestamps available)",
+                    flush=True,
+                )
+            else:
+                print(
+                    "[iec104-controller][timing] "
+                    f"t_last_meas_rx={t_last_meas:.6f} "
+                    f"t_cmd_tx_start={t0:.6f} (dt={(t0 - t_last_meas):.6f}s) "
+                    f"t_cmd_tx_end={t1:.6f} (dt={(t1 - t_last_meas):.6f}s) "
+                    f"cmd_window={(t1 - t0):.6f}s",
+                    flush=True,
+                )
+
         sent = True
         print(f"[iec104-controller] commands sent in {(t1 - t0):.6f} s (ok={all_ok})", flush=True)
 
     def on_lost_p(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> c104.ResponseState:
-        nonlocal got_lost_p, got_lost_p_rx
+        nonlocal got_lost_p, got_lost_p_rx, lost_p_rx_t
         if message.cot not in accepted_monitor_cots:
             return c104.ResponseState.SUCCESS
+        lost_p_rx_t = float(time.perf_counter())
         try:
             got_lost_p = float(message.info.value)
         except Exception:
@@ -206,9 +295,10 @@ def run_controller_once(args: argparse.Namespace) -> None:
 
     def make_on_ppf(bus: int):
         def _cb(point: c104.Point, previous_info: c104.Information, message: c104.IncomingMessage) -> c104.ResponseState:
-            nonlocal got_ppf_by_bus, got_ppf_rx
+            nonlocal got_ppf_by_bus, got_ppf_rx, ppf_rx_t_by_bus
             if message.cot not in accepted_monitor_cots:
                 return c104.ResponseState.SUCCESS
+            ppf_rx_t_by_bus[int(bus)] = float(time.perf_counter())
             try:
                 got_ppf_by_bus[bus] = float(message.info.value)
             except Exception:
@@ -256,14 +346,45 @@ def run_controller_once(args: argparse.Namespace) -> None:
         f"[iec104-controller] scenario={args.scenario} client started; target={args.ip}:{int(args.port)} (CA={int(args.ca)})",
         flush=True,
     )
+    if bool(getattr(args, "debug_timing", False)):
+        print(
+            f"[iec104-controller][timing] tick_ms={int(tick_rate_ms)} inter_command_sleep_ms={float(args.inter_command_sleep_ms):.3f}",
+            flush=True,
+        )
 
     # Keep process alive long enough to receive and send.
     t_start = time.perf_counter()
     while time.perf_counter() - t_start < 30.0:
         if open_event.is_set() and (not sent) and got_lost_p_rx and all(bus in got_ppf_rx for bus in expected_buses):
+            if bool(getattr(args, "debug_timing", False)):
+                rx_ts = []
+                if lost_p_rx_t is not None:
+                    rx_ts.append(float(lost_p_rx_t))
+                rx_ts.extend(float(v) for v in ppf_rx_t_by_bus.values())
+                t_last_meas = max(rx_ts) if rx_ts else None
+                t_now = float(time.perf_counter())
+                if t_last_meas is not None:
+                    print(
+                        "[iec104-controller][timing] "
+                        f"decision_t={t_now:.6f} dt_since_last_meas={(t_now - t_last_meas):.6f}s",
+                        flush=True,
+                    )
             send_commands(float(got_lost_p), {b: float(got_ppf_by_bus[b]) for b in expected_buses})
             break
         if (not sent) and got_lost_p_rx and all(bus in got_ppf_rx for bus in expected_buses):
+            if bool(getattr(args, "debug_timing", False)):
+                rx_ts = []
+                if lost_p_rx_t is not None:
+                    rx_ts.append(float(lost_p_rx_t))
+                rx_ts.extend(float(v) for v in ppf_rx_t_by_bus.values())
+                t_last_meas = max(rx_ts) if rx_ts else None
+                t_now = float(time.perf_counter())
+                if t_last_meas is not None:
+                    print(
+                        "[iec104-controller][timing] "
+                        f"decision_t={t_now:.6f} dt_since_last_meas={(t_now - t_last_meas):.6f}s (open_event not set)",
+                        flush=True,
+                    )
             send_commands(float(got_lost_p), {b: float(got_ppf_by_bus[b]) for b in expected_buses})
             break
         # Event-driven wait: avoids 50ms polling quantization.

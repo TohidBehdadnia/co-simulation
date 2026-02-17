@@ -11,6 +11,7 @@ Then generates a comparison plot (mean ±95% CI by default).
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 from pathlib import Path
 
@@ -66,6 +67,7 @@ def _run_campaign(
     start_id: int,
     run_timeout: float,
     base_seed: int | None,
+    debug_timing: bool,
     delay_min: float | None = None,
     delay_max: float | None = None,
     drop_prob: float | None = None,
@@ -80,7 +82,7 @@ def _run_campaign(
         start_id=int(start_id),
         run_timeout=float(run_timeout),
         inter_command_sleep_ms=0.0,
-        tick_ms=50,
+        tick_ms=200,
         ca=1,
         wait_start=True,
         wait_start_timeout=0.0,
@@ -89,6 +91,7 @@ def _run_campaign(
         shed_buses="2,3,4,5,6,9",
         log_messages=True,
         plot=None,
+        debug_timing=bool(debug_timing),
         listen_host="127.0.0.1",
         listen_port=2405,
         upstream_host="127.0.0.1",
@@ -139,6 +142,12 @@ def main() -> int:
     ap.add_argument("--base-seed", type=int, default=98)
     ap.add_argument("--run-timeout", type=float, default=240.0)
     ap.add_argument(
+        "--debug-timing",
+        action="store_true",
+        default=bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))),
+        help="Enable perf_counter-based timing logs in both system and controller.",
+    )
+    ap.add_argument(
         "--batch",
         choices=["delay", "drop"],
         default="delay",
@@ -180,6 +189,14 @@ def main() -> int:
         default=100,
         help="Number of frequency bins for the 3D distribution plot (default: 100).",
     )
+    ap.add_argument(
+        "--pcap-parser",
+        choices=["none", "dpkt"],
+        default="none",
+        help=(
+            "Parser to use for optional pcap-derived plots: none (default) or dpkt."
+        ),
+    )
 
     args = ap.parse_args()
 
@@ -202,6 +219,7 @@ def main() -> int:
                     start_id=2001,
                     run_timeout=float(args.run_timeout),
                     base_seed=None,
+                    debug_timing=bool(args.debug_timing),
                 )
 
             _run_campaign(
@@ -211,6 +229,7 @@ def main() -> int:
                 start_id=3101,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 drop_prob=0.1,
             )
             _run_campaign(
@@ -220,6 +239,7 @@ def main() -> int:
                 start_id=3201,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 drop_prob=0.5,
             )
             _run_campaign(
@@ -229,6 +249,7 @@ def main() -> int:
                 start_id=3301,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 drop_prob=0.9,
             )
         else:
@@ -240,6 +261,7 @@ def main() -> int:
                 start_id=2001,
                 run_timeout=float(args.run_timeout),
                 base_seed=None,
+                debug_timing=bool(args.debug_timing),
             )
 
             # MITM delay ranges
@@ -250,6 +272,7 @@ def main() -> int:
                 start_id=2101,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 delay_min=0.05,
                 delay_max=0.25,
             )
@@ -260,6 +283,7 @@ def main() -> int:
                 start_id=2201,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 delay_min=0.30,
                 delay_max=0.50,
             )
@@ -270,6 +294,7 @@ def main() -> int:
                 start_id=2301,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
                 delay_min=0.55,
                 delay_max=0.75,
             )
@@ -282,6 +307,12 @@ def main() -> int:
 
     band_sel = str(args.band)
     bands = [band_sel] if band_sel in {"ci95", "sd"} else ["sd", "ci95"]
+
+    # If the user requested only extra plots (dist3d or pcap-derived), run a single pass.
+    # The extra plots don't depend on the band, and plotter_comparator will skip the 2D plot.
+    only_extras = bool(args.dist3d) or str(args.pcap_parser).lower().strip() != "none"
+    if only_extras:
+        bands = ["sd"]
 
     out_name_raw = str(args.out_name)
     base = str(Path(out_name_raw).with_suffix(""))
@@ -307,6 +338,7 @@ def main() -> int:
             dist3d=want_dist3d,
             dist3d_bins=int(args.dist3d_bins),
             max_runs=int(args.num_runs),
+            pcap_parser=str(args.pcap_parser),
         )
         plotter_comparator.plot_comparison(plot_args)
     return 0

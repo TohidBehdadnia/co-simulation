@@ -209,6 +209,7 @@ class IEC104SystemConfig:
     timeout: float
     num_runs: int
     plot: bool | None
+    debug_timing: bool
     mitm_shed_delay: float
     mitm_shed_delay_min: float | None
     mitm_shed_delay_max: float | None
@@ -223,6 +224,7 @@ class IEC104ControllerConfig:
     ca: int
     tick_ms: int
     inter_command_sleep_ms: float
+    debug_timing: bool
 
 
 @dataclass
@@ -265,6 +267,7 @@ class IEC104SystemComponent:
             start_id=int(run_id),
             plot=self.config.plot,
             plot_enabled=plot_enabled,
+            debug_timing=bool(self.config.debug_timing),
             mitm_shed_delay=float(self.config.mitm_shed_delay),
             mitm_shed_delay_min=self.config.mitm_shed_delay_min,
             mitm_shed_delay_max=self.config.mitm_shed_delay_max,
@@ -286,6 +289,7 @@ class IEC104ControllerComponent:
             ca=self.config.ca,
             tick_ms=self.config.tick_ms,
             inter_command_sleep_ms=self.config.inter_command_sleep_ms,
+            debug_timing=bool(self.config.debug_timing),
         )
         iec104_controller.run_controller_once(args)
 
@@ -308,6 +312,8 @@ class IEC104ScenarioOrchestrator:
             setattr(args, "tcpdump_filter", None)
         if not hasattr(args, "tcpdump_snaplen"):
             setattr(args, "tcpdump_snaplen", 0)
+        if not hasattr(args, "debug_timing"):
+            setattr(args, "debug_timing", bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))))
         self.args = args
 
     def _controller_port(self) -> int:
@@ -325,6 +331,7 @@ class IEC104ScenarioOrchestrator:
                 timeout=float(self.args.system_timeout),
                 num_runs=int(self.args.num_runs),
                 plot=self.args.plot,
+                debug_timing=bool(self.args.debug_timing),
                 mitm_shed_delay=float(self.args.proxy_shed_delay),
                 mitm_shed_delay_min=self.args.proxy_shed_delay_min,
                 mitm_shed_delay_max=self.args.proxy_shed_delay_max,
@@ -341,6 +348,7 @@ class IEC104ScenarioOrchestrator:
                 ca=int(self.args.ca),
                 tick_ms=int(self.args.tick_ms),
                 inter_command_sleep_ms=float(self.args.inter_command_sleep_ms),
+                debug_timing=bool(self.args.debug_timing),
             )
         )
 
@@ -503,6 +511,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="Forwarded to controller_iec104_master.py",
+    )
+    parser.add_argument(
+        "--debug-timing",
+        action="store_true",
+        default=bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))),
+        help="Enable perf_counter-based timing logs in both system and controller.",
     )
     parser.add_argument("--tick-ms", type=int, default=50)
     parser.add_argument("--ca", type=int, default=1)

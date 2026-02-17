@@ -70,12 +70,23 @@ Batch experiments (single command):
 Aggregated plots (from existing results):
 - `plotter_comparator.py` overlays mean frequency-vs-time curves across scenarios (band: `--band ci95` or `--band sd`).
 - `--dist3d` additionally writes a single PDF with a grid of 3D subplots (one per scenario) showing the per-time frequency distribution across runs.
+- If `logs/run_<id>/traffic.pcap` exists (tcpdump enabled during runs), `plotter_comparator.py` also generates pcap-derived summary plots:
+	- One boxplot for direct + delay strategies.
+	- One boxplot for direct + drop strategies.
+	- Delay plot shows setpoint arrival times relative to the first measurement snapshot (per run).
+	- Drop plot shows the distribution of per-run counts of IEC-104 `C_SE_NC_1` setpoints to the outstation/server.
+
+Note:
+- If you request `--dist3d` or enable pcap plots via `--pcap-parser` (anything other than `none`), the 2D frequency comparison plot is not generated.
 - Output naming:
 	- 2D comparison: `plots/<out-name>`
 	- 3D distribution: `plots/<out-stem>_dist3d_all_<delay|drop|mixed>.pdf`
+	- PCAP setpoint arrival times (delay+direct): `plots/<out-stem>_pcap_setpoint_arrival_rel_to_meas_delay.pdf`
+	- PCAP setpoint count (drop+direct): `plots/<out-stem>_pcap_setpoint_count_to_server_drop.pdf`
 - Run limiting:
 	- `plotter_comparator.py --max-runs N` limits how many `.npz` run files are loaded per scenario folder.
 	- `run_batch_experiment.py` forwards `--num-runs` as the plot run-limit, so the aggregated plots use the latest `--num-runs` run files per scenario.
+	- `--pcap-parser none|dpkt` selects whether pcap-derived plots are generated.
 
 Example (drop scenarios):
 ```bash
