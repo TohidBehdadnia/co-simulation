@@ -163,7 +163,22 @@ def main() -> int:
         "--band",
         choices=["ci95", "sd", "both"],
         default="ci95",
-        help="Which plot(s) to generate: 95% CI of mean (ci95), ±1 SD (sd), or both.",
+        help="Which plot(s) to generate: 95%% CI of mean (ci95), ±1 SD (sd), or both.",
+    )
+    ap.add_argument(
+        "--dist3d",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Also generate a 3D distribution plot (single PDF with one subplot per scenario) "
+            "showing the frequency distribution across runs over time."
+        ),
+    )
+    ap.add_argument(
+        "--dist3d-bins",
+        type=int,
+        default=100,
+        help="Number of frequency bins for the 3D distribution plot (default: 100).",
     )
 
     args = ap.parse_args()
@@ -275,6 +290,10 @@ def main() -> int:
         out_name = out_name_raw if band_sel != "both" else f"{base}_{b}.pdf"
         out_name = str(Path(out_name).with_suffix(".pdf"))
 
+        # The 3D distribution does not depend on the band; when generating both bands,
+        # create it only once to avoid duplicate outputs.
+        want_dist3d = bool(args.dist3d) and (band_sel != "both" or b == "sd")
+
         # Keep user-provided titles as-is; for the default title, append the band.
         title = str(args.title)
         if title == "Frequency in IEC 104 Load Shedding VS MITM attacks":
@@ -285,6 +304,9 @@ def main() -> int:
             out_name=out_name,
             title=title,
             band=b,
+            dist3d=want_dist3d,
+            dist3d_bins=int(args.dist3d_bins),
+            max_runs=int(args.num_runs),
         )
         plotter_comparator.plot_comparison(plot_args)
     return 0

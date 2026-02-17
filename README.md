@@ -57,15 +57,49 @@ One-command multi-run (recommended):
 - MITM drop (20 runs): `.venv/bin/python run_iec104_scenario.py --scenario mitm --mitm-mode drop --num-runs 20 --proxy-command-drop-prob 0.4 --proxy-seed 98`
 
 Batch experiments (single command):
-- Delay batch (direct + 3 delay ranges), 10 runs each, CI95 plot (default):
+- Delay batch (direct + 3 delay ranges), 10 runs each:
 	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --out-name freq_comparison_delay_mean.pdf`
-- Delay batch, generate both SD and CI95 plots:
-	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --band both --out-name freq_comparison_delay_mean.pdf`
 - Drop batch (direct + pdrop=0.1/0.5/0.9), 10 runs each, reuse existing direct results:
 	- `.venv/bin/python run_batch_experiment.py --batch drop --num-runs 10 --reuse-direct --out-name freq_comparison_drop_mean.pdf`
+- Add the combined 3D distribution plot (one subplot per scenario):
+	- `.venv/bin/python run_batch_experiment.py --batch drop --only-plot --num-runs 10 --band sd --dist3d --dist3d-bins 100 --out-name freq_comparison_drop_mean.pdf`
 - Plot-only regeneration from existing results (no rerun):
 	- `.venv/bin/python run_batch_experiment.py --batch delay --only-plot --band ci95 --out-name freq_comparison_delay_mean.pdf`
 	- `.venv/bin/python run_batch_experiment.py --batch drop --only-plot --band both --out-name freq_comparison_drop_mean.pdf`
+
+Aggregated plots (from existing results):
+- `plotter_comparator.py` overlays mean frequency-vs-time curves across scenarios (band: `--band ci95` or `--band sd`).
+- `--dist3d` additionally writes a single PDF with a grid of 3D subplots (one per scenario) showing the per-time frequency distribution across runs.
+- Output naming:
+	- 2D comparison: `plots/<out-name>`
+	- 3D distribution: `plots/<out-stem>_dist3d_all_<delay|drop|mixed>.pdf`
+- Run limiting:
+	- `plotter_comparator.py --max-runs N` limits how many `.npz` run files are loaded per scenario folder.
+	- `run_batch_experiment.py` forwards `--num-runs` as the plot run-limit, so the aggregated plots use the latest `--num-runs` run files per scenario.
+
+Example (drop scenarios):
+```bash
+.venv/bin/python plotter_comparator.py \
+	case_iec104_direct_percmd="Direct" \
+	case_iec104_mitm_drop_pdrop0p1_percmd="MITM drop p=0.1" \
+	case_iec104_mitm_drop_pdrop0p5_percmd="MITM drop p=0.5" \
+	case_iec104_mitm_drop_pdrop0p9_percmd="MITM drop p=0.9" \
+	--band sd --dist3d --dist3d-bins 100 \
+	--out-name tmp_drop_compare.pdf \
+	--title "tmp-drop"
+```
+
+Example (delay scenarios):
+```bash
+.venv/bin/python plotter_comparator.py \
+	case_iec104_direct_percmd="Direct" \
+	case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd="MITM delay 50–250ms" \
+	case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd="MITM delay 300–500ms" \
+	case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd="MITM delay 550–750ms" \
+	--band sd --dist3d --dist3d-bins 100 \
+	--out-name tmp_delay_compare.pdf \
+	--title "tmp-delay"
+```
 
 Logs (orchestrator):
 - When using `run_iec104_scenario.py`, the three components write to separate log files under `logs/run_<id>/`:
