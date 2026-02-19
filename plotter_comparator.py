@@ -1,4 +1,5 @@
 import argparse
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -913,6 +914,10 @@ def plot_comparison(args: argparse.Namespace) -> None:
     ax = None
     mean_handles: list[plt.Line2D] = []
     last_cmd_stats: list[tuple[str, str, float | None, float]] = []  # (label, color, mean, hw)
+    # Per-strategy summary stats to export when plotting mean ±95% CI.
+    # Columns requested: average, median, minimum, maximum, relative accuracy.
+    # Here, these are computed on all frequency samples across runs after the trip time.
+    scenario_summary_rows: list[dict[str, str]] = []
     if want_freq_plot:
         fig, ax = plt.subplots()
         ax.set_axisbelow(True)
@@ -972,6 +977,75 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
             t_plot = t_ref
             freq_mat = np.vstack([np.asarray(x, dtype=float) for x in runs_freq])
+
+            # Collect summary stats for CSV export (only written for ci95 plots).
+            # Use post-trip samples so the pre-trip steady-state does not dominate the stats.
+            try:
+                t_mask = np.asarray(t_plot, dtype=float) >= float(t_trip)
+                if np.any(t_mask):
+                    samples = np.asarray(freq_mat[:, t_mask], dtype=float).ravel()
+                else:
+                    samples = np.asarray(freq_mat, dtype=float).ravel()
+
+                samples = samples[np.isfinite(samples)]
+                if samples.size:
+                    avg_v = float(np.nanmean(samples))
+                    med_v = float(np.nanmedian(samples))
+                    min_v = float(np.nanmin(samples))
+                    max_v = float(np.nanmax(samples))
+                else:
+                    avg_v = float("nan")
+                    med_v = float("nan")
+                    min_v = float("nan")
+                    max_v = float("nan")
+
+                # Relative accuracy (as requested): CI semiwidth / average value * 100.
+                # It is meaningful only for ci95 band; leave blank otherwise.
+                rel_acc_pct: float | None = None
+                max_rel_acc_pct: float | None = None
+                if band_mode == "ci95":
+                    mean_f, lo_f, hi_f = _mean_and_band(freq_mat, mode=band_mode)
+                    # CI half-width per time step: (hi - lo) / 2.
+                    hw = 0.5 * (np.asarray(hi_f, dtype=float) - np.asarray(lo_f, dtype=float))
+                    if np.any(t_mask):
+                        mean_sel = np.asarray(mean_f, dtype=float)[t_mask]
+                        hw_sel = np.asarray(hw, dtype=float)[t_mask]
+                    else:
+                        mean_sel = np.asarray(mean_f, dtype=float)
+                        hw_sel = np.asarray(hw, dtype=float)
+
+                    mean_sel = np.asarray(mean_sel, dtype=float)
+                    hw_sel = np.asarray(hw_sel, dtype=float)
+                    finite_mask = np.isfinite(mean_sel) & np.isfinite(hw_sel)
+                    denom_sel = np.abs(mean_sel)
+                    finite_mask = finite_mask & (denom_sel != 0.0)
+
+                    if np.any(finite_mask):
+                        denom = float(np.nanmean(denom_sel[finite_mask]))
+                        numer = float(np.nanmean(hw_sel[finite_mask]))
+                        if np.isfinite(denom) and np.isfinite(numer):
+                            rel_acc_pct = 100.0 * (numer / denom)
+                            ratio_series = 100.0 * (hw_sel[finite_mask] / denom_sel[finite_mask])
+                            if ratio_series.size and np.any(np.isfinite(ratio_series)):
+                                max_rel_acc_pct = float(np.nanmax(ratio_series))
+                        elif np.isfinite(denom) and np.isfinite(numer) and numer == 0.0:
+                            rel_acc_pct = 0.0
+                            max_rel_acc_pct = 0.0
+
+                scenario_summary_rows.append(
+                    {
+                        "strategy": str(label),
+                        "average": f"{avg_v:.6g}" if np.isfinite(avg_v) else "",
+                        "median": f"{med_v:.6g}" if np.isfinite(med_v) else "",
+                        "minimum": f"{min_v:.6g}" if np.isfinite(min_v) else "",
+                        "maximum": f"{max_v:.6g}" if np.isfinite(max_v) else "",
+                        "average_relative_accuracy": f"{rel_acc_pct:.6g}" if rel_acc_pct is not None and np.isfinite(rel_acc_pct) else "",
+                        "max_relative_accuracy": f"{max_rel_acc_pct:.6g}" if max_rel_acc_pct is not None and np.isfinite(max_rel_acc_pct) else "",
+                    }
+                )
+            except Exception:
+                # Never fail the plot if stats export cannot be computed.
+                pass
 
             if want_freq_plot:
                 assert ax is not None and fig is not None
@@ -1121,6 +1195,27 @@ def plot_comparison(args: argparse.Namespace) -> None:
         fig.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved plot to {out_path}")
+
+        # Export per-strategy stats when plotting with 95% CI.
+        if band_mode == "ci95" and scenario_summary_rows:
+            csv_path = RESULTS_DIR / f"{out_stem}_strategy_stats_ci95.csv"
+            csv_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "strategy",
+                        "average",
+                        "median",
+                        "minimum",
+                        "maximum",
+                        "average_relative_accuracy",
+                        "max_relative_accuracy",
+                    ],
+                )
+                w.writeheader()
+                w.writerows(scenario_summary_rows)
+            print(f"Saved strategy stats CSV to {csv_path}")
 
     if want_dist3d and dist3d_scenarios:
         dist3d_all_path = PLOTS_DIR / f"{out_stem}_dist3d_all_{dist_tag}.pdf"
