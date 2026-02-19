@@ -413,17 +413,7 @@ class IEC104ScenarioOrchestrator:
             try:
                 tcpdump_capture = _start_tcpdump_capture(self.args, run_log_dir)
 
-                if proxy_cfg is not None:
-                    print(f"[orchestrator] proxy log: {proxy_log}", flush=True)
-                    proxy_proc = ctx.Process(
-                        target=_proc_run_proxy,
-                        args=(proxy_cfg, proxy_stop, proxy_log),
-                        name=f"iec104-proxy-{run_id}",
-                        daemon=True,
-                    )
-                    proxy_proc.start()
-                    time.sleep(0.3)
-
+                # Start the outstation/system first so the proxy can connect upstream reliably.
                 print(f"[orchestrator] system log: {system_log}", flush=True)
                 system_proc = ctx.Process(
                     target=_proc_run_system,
@@ -433,7 +423,23 @@ class IEC104ScenarioOrchestrator:
                 )
                 system_proc.start()
 
-                time.sleep(0.5)
+                # Give the outstation time to fully start (andes init + bind/listen).
+                # This reduces intermittent cases where a client connects while the server is
+                # not yet ready to complete STARTDT, leaving the link stuck in OPEN_MUTED.
+                time.sleep(2.0)
+
+                if proxy_cfg is not None:
+                    print(f"[orchestrator] proxy log: {proxy_log}", flush=True)
+                    proxy_proc = ctx.Process(
+                        target=_proc_run_proxy,
+                        args=(proxy_cfg, proxy_stop, proxy_log),
+                        name=f"iec104-proxy-{run_id}",
+                        daemon=True,
+                    )
+                    proxy_proc.start()
+                    # Give the proxy time to bind/listen and start its internal threads.
+                    time.sleep(1.0)
+
                 print(f"[orchestrator] controller log: {controller_log}", flush=True)
                 controller_proc = ctx.Process(
                     target=_proc_run_controller,
@@ -481,6 +487,11 @@ class IEC104ScenarioOrchestrator:
                         proxy_proc.join(timeout=5.0)
 
                 _stop_tcpdump_capture(tcpdump_capture)
+
+                # Give the OS and c104 some breathing room between runs (port reuse, background
+                # thread tear-down). This reduces intermittent startup/handshake issues.
+                if run_offset < (int(self.args.num_runs) - 1):
+                    time.sleep(1.0)
 
         print("\n[orchestrator] all runs completed", flush=True)
         return 0

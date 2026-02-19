@@ -33,6 +33,8 @@ def _scenario_dirs() -> list[str]:
         "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd",
         # Backward-compatible cleanup for older naming/ranges.
         "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd",
+        "case_iec104_mitm_delay_dmin0p15_dmax0p6_percmd",
+        "case_iec104_mitm_delay_dmin0p15_dmax0p85_percmd",
         "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd",
         "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd",
     ]

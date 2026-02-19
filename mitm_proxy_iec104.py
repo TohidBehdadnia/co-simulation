@@ -124,47 +124,77 @@ def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None 
     # --------------------------
     tick_ms = max(int(args.tick_ms), 50)
 
-    upstream_client = c104.Client(tick_rate_ms=tick_ms, command_timeout_ms=args.command_timeout_ms)
-    # Disable automatic init/interrogation upstream; the real outstation will transmit
-    # the measurement snapshot after it receives the start command.
-    upstream_con = upstream_client.add_connection(ip=args.upstream_host, port=args.upstream_port, init=c104.Init.NONE)
-    if upstream_con is None:
-        raise RuntimeError("Failed to create upstream IEC-104 connection")
+    # Rarely the upstream c104 connection can get stuck in OPEN_MUTED (TCP up, STARTDT not
+    # completed) and never reach OPEN. When that happens, the proxy will keep deferring the
+    # start command forever and the system will hang waiting for IOA 8999.
+    # To make batch runs robust, retry upstream client creation a few times before proceeding.
+    MAX_UPSTREAM_RETRIES = 3
+    UPSTREAM_OPEN_TIMEOUT_S = 5.0
 
     upstream_open = threading.Event()
 
-    def on_upstream_state_change(connection: c104.Connection, state: c104.ConnectionState) -> None:
-        if state == c104.ConnectionState.OPEN:
-            upstream_open.set()
-            log("upstream connection OPEN")
-        else:
-            upstream_open.clear()
-            log(f"upstream connection state={state}")
+    def _build_upstream_once():
+        upstream_open.clear()
+        client = c104.Client(tick_rate_ms=tick_ms, command_timeout_ms=args.command_timeout_ms)
+        con = client.add_connection(ip=args.upstream_host, port=args.upstream_port, init=c104.Init.NONE)
+        if con is None:
+            raise RuntimeError("Failed to create upstream IEC-104 connection")
 
-    upstream_con.on_state_change(callable=on_upstream_state_change)
+        def on_upstream_state_change(connection: c104.Connection, state: c104.ConnectionState) -> None:
+            if state == c104.ConnectionState.OPEN:
+                upstream_open.set()
+                log("upstream connection OPEN")
+            else:
+                upstream_open.clear()
+                log(f"upstream connection state={state}")
 
-    upstream_station = upstream_con.add_station(common_address=ca)
-    if upstream_station is None:
-        raise RuntimeError("Failed to add upstream station")
+        con.on_state_change(callable=on_upstream_state_change)
 
-    # Points on upstream (client-side)
-    up_start = upstream_station.add_point(io_address=IOA_START, type=c104.Type.C_SC_NA_1)
-    if up_start is None:
-        raise RuntimeError("Failed to add upstream start point")
+        station = con.add_station(common_address=ca)
+        if station is None:
+            raise RuntimeError("Failed to add upstream station")
 
-    up_lost_p = upstream_station.add_point(io_address=IOA_LOST_P, type=c104.Type.M_ME_NC_1)
-    if up_lost_p is None:
-        raise RuntimeError("Failed to add upstream lost_p point")
+        start_pt = station.add_point(io_address=IOA_START, type=c104.Type.C_SC_NA_1)
+        if start_pt is None:
+            raise RuntimeError("Failed to add upstream start point")
 
-    up_ppf: dict[int, c104.Point] = {}
-    up_shed_cmd: dict[int, c104.Point] = {}
-    for bus in shed_buses:
-        p = upstream_station.add_point(io_address=IOA_PPF_BASE + bus, type=c104.Type.M_ME_NC_1)
-        c = upstream_station.add_point(io_address=IOA_SHED_BASE + bus, type=c104.Type.C_SE_NC_1)
-        if p is None or c is None:
-            raise RuntimeError(f"Failed to create upstream points for bus {bus}")
-        up_ppf[bus] = p
-        up_shed_cmd[bus] = c
+        lost_pt = station.add_point(io_address=IOA_LOST_P, type=c104.Type.M_ME_NC_1)
+        if lost_pt is None:
+            raise RuntimeError("Failed to add upstream lost_p point")
+
+        ppf: dict[int, c104.Point] = {}
+        shed_cmd: dict[int, c104.Point] = {}
+        for bus in shed_buses:
+            p = station.add_point(io_address=IOA_PPF_BASE + bus, type=c104.Type.M_ME_NC_1)
+            c = station.add_point(io_address=IOA_SHED_BASE + bus, type=c104.Type.C_SE_NC_1)
+            if p is None or c is None:
+                raise RuntimeError(f"Failed to create upstream points for bus {bus}")
+            ppf[bus] = p
+            shed_cmd[bus] = c
+
+        return client, con, station, start_pt, lost_pt, ppf, shed_cmd
+
+    last_up_exc: Exception | None = None
+    upstream_client = None
+    for attempt in range(1, MAX_UPSTREAM_RETRIES + 1):
+        try:
+            upstream_client, upstream_con, upstream_station, up_start, up_lost_p, up_ppf, up_shed_cmd = _build_upstream_once()
+            upstream_client.start()
+            if upstream_open.wait(timeout=float(UPSTREAM_OPEN_TIMEOUT_S)):
+                break
+            raise TimeoutError("upstream did not reach OPEN")
+        except Exception as exc:
+            last_up_exc = exc
+            try:
+                if upstream_client is not None:
+                    upstream_client.stop()
+            except Exception:
+                pass
+            if attempt < MAX_UPSTREAM_RETRIES:
+                print(f"[iec104-mitm] WARNING: upstream not OPEN; retrying ({attempt}/{MAX_UPSTREAM_RETRIES})", flush=True)
+                time.sleep(0.5)
+            else:
+                raise TimeoutError(f"MITM upstream failed after {MAX_UPSTREAM_RETRIES} attempts: {last_up_exc}")
 
     # --------------------------
     # Downstream side (to real controller/master)
@@ -531,7 +561,7 @@ def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None 
     except Exception:
         pass
 
-    upstream_client.start()
+    # Upstream client is started above (with retries) to ensure we begin in OPEN state.
 
     # Keep the process alive
     print("[iec104-mitm] running", flush=True)

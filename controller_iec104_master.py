@@ -97,6 +97,37 @@ def compute_shed_by_bus(lost_p: float, ppf_by_bus: dict[int, float]) -> dict[int
 
 def run_controller_once(args: argparse.Namespace) -> None:
 
+    # Rarely, the c104 link handshake can get stuck in OPEN_MUTED (TCP connected, but STARTDT
+    # not completed). In that case no ASDUs flow and the outstation keeps waiting for the start
+    # point. Empirically this can happen intermittently across runs (see logs where only TESTFR
+    # act/con appear and STARTDT act/con is missing). To make campaigns robust, we retry the
+    # entire client startup a few times if we observe a prolonged OPEN_MUTED with no progress.
+    MAX_RETRIES = 3
+    OPEN_MUTED_STUCK_S = 5.0
+
+    last_exc: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            ok = _run_controller_once_inner(args, open_muted_stuck_s=float(OPEN_MUTED_STUCK_S))
+            if ok:
+                return
+            last_exc = RuntimeError("controller did not reach OPEN / did not complete handshake")
+        except Exception as exc:
+            last_exc = exc
+
+        if attempt < MAX_RETRIES:
+            print(
+                f"[iec104-controller] WARNING: retrying controller startup ({attempt}/{MAX_RETRIES})",
+                flush=True,
+            )
+            time.sleep(0.5)
+
+    # If we get here, all attempts failed.
+    raise TimeoutError(f"IEC-104 controller failed after {MAX_RETRIES} attempts: {last_exc}")
+
+
+def _run_controller_once_inner(args: argparse.Namespace, *, open_muted_stuck_s: float) -> bool:
+
     expected_buses = list(sorted(set(int(b) for b in shed_buses)))
 
     got_lost_p = None
@@ -113,6 +144,7 @@ def run_controller_once(args: argparse.Namespace) -> None:
     open_event = threading.Event()
 
     last_conn_state: c104.ConnectionState | None = None
+    open_muted_since: float | None = None
 
     tick_rate_ms = _clamp_tick_ms(int(args.tick_ms))
 
@@ -318,9 +350,16 @@ def run_controller_once(args: argparse.Namespace) -> None:
 
     def on_state_change(connection: c104.Connection, state: c104.ConnectionState) -> None:
         nonlocal last_conn_state
+        nonlocal open_muted_since
         if state != last_conn_state:
             last_conn_state = state
             print(f"[iec104-controller] connection state={state}", flush=True)
+
+        if state == c104.ConnectionState.OPEN_MUTED:
+            if open_muted_since is None:
+                open_muted_since = float(time.perf_counter())
+        else:
+            open_muted_since = None
 
         if state == c104.ConnectionState.OPEN:
             open_event.set()
@@ -355,6 +394,13 @@ def run_controller_once(args: argparse.Namespace) -> None:
     # Keep process alive long enough to receive and send.
     t_start = time.perf_counter()
     while time.perf_counter() - t_start < 30.0:
+        # If the link got stuck in OPEN_MUTED, restart the client so we can re-attempt STARTDT.
+        if open_muted_since is not None and (time.perf_counter() - float(open_muted_since)) > float(open_muted_stuck_s):
+            print(
+                f"[iec104-controller] WARNING: stuck in OPEN_MUTED for >{open_muted_stuck_s:.1f}s; restarting client",
+                flush=True,
+            )
+            break
         if open_event.is_set() and (not sent) and got_lost_p_rx and all(bus in got_ppf_rx for bus in expected_buses):
             if bool(getattr(args, "debug_timing", False)):
                 rx_ts = []
@@ -393,6 +439,8 @@ def run_controller_once(args: argparse.Namespace) -> None:
 
     time.sleep(0.05)
     client.stop()
+
+    return bool(sent)
 
 
 def main():
