@@ -18,7 +18,28 @@ PLOTS_DIR = BASE_DIR / "plots"
 t_trip = 1.0
 
 # Colors and markers for up to 10 scenarios. Matplotlib will cycle through these.
-markers = ["o", "s", "D", "^", "v", "<", ">", "P", "X"]
+markers = ["o", "s", "^", "X", "v", "<", ">", "*", "P"]
+
+def _strategy_palette(n_colors: int) -> list[object]:
+    """Return the default categorical palette, reordered.
+
+    Keeps the current seaborn theme palette (set by `sns.set_theme()`, typically
+    the less-vivid "deep" palette), but reorders the first strategies to:
+    blue → green → yellow → red.
+    """
+
+    n = max(1, int(n_colors))
+    base = sns.color_palette(n_colors=10)
+
+    preferred = [0, 2, 1, 3]
+    remaining = [i for i in range(10) if i not in preferred]
+    order = preferred + remaining
+
+    pal = [base[i] for i in order]
+    if n <= 10:
+        return pal[:n]
+    # More than 10: fall back to seaborn's extended palette.
+    return sns.color_palette(n_colors=n)
 
 
 def _extract_run_id_from_npz_name(path: Path) -> int | None:
@@ -922,15 +943,31 @@ def plot_comparison(args: argparse.Namespace) -> None:
         fig, ax = plt.subplots()
         ax.set_axisbelow(True)
 
-    # Deterministic palette matching seaborn's default categorical palette.
-    base_palette = sns.color_palette(n_colors=max(1, len(specs)))
+    # Deterministic palette: blue→green→yellow→red from Direct to last strategy.
+    base_palette = _strategy_palette(len(specs))
     out_name_base = Path(str(args.out_name)).name
     out_stem = str(Path(out_name_base).with_suffix(""))
 
     dist3d_scenarios: list[tuple[str, object | None, np.ndarray, np.ndarray]] = []
     scenario_run_ids: dict[str, list[int]] = {}
     scenario_order: list[str] = [str(s.label) for s in specs]
-    scenario_colors: dict[str, object] = {str(s.label): base_palette[i] for i, s in enumerate(specs)}
+    # Assign Direct the first color (blue) even if user-provided specs are not ordered.
+    scenario_colors: dict[str, object] = {}
+    direct_idx = None
+    for idx, s in enumerate(specs):
+        if "direct" in str(s.scenario_id).lower():
+            direct_idx = idx
+            break
+    pal_iter = iter(base_palette)
+    if direct_idx is not None:
+        scenario_colors[str(specs[direct_idx].label)] = next(pal_iter)
+        for j, s in enumerate(specs):
+            if j == direct_idx:
+                continue
+            scenario_colors[str(s.label)] = next(pal_iter, base_palette[-1])
+    else:
+        for s in specs:
+            scenario_colors[str(s.label)] = next(pal_iter, base_palette[-1])
 
     i = 1
     for spec in specs:
@@ -1052,16 +1089,27 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 mean_f, lo_f, hi_f = _mean_and_band(freq_mat, mode=band_mode)
                 n_lines_before = len(ax.lines)
                 band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
-                label_str = f"{label} (mean {band_txt})"
-                sns.lineplot(x=t_plot, y=mean_f, ax=ax, label=label_str, linewidth=2.0)
+                label_str = f"{label}"#f"{label} (mean {band_txt})"
+                # Enforce the shared strategy palette (blue→green→yellow→red).
+                line_color = scenario_colors.get(str(label))
+                if line_color is None:
+                    line_color = base_palette[(i - 1) % len(base_palette)]
+                    scenario_colors[str(label)] = line_color
+                sns.lineplot(
+                    x=t_plot,
+                    y=mean_f,
+                    ax=ax,
+                    label=label_str,
+                    linewidth=2.0,
+                    color=line_color,
+                )
                 if len(ax.lines) <= n_lines_before:
                     raise RuntimeError("Failed to create mean line plot")
                 line = ax.lines[-1]
-                line.set_marker(markers[i % len(markers)])
+                line.set_marker(markers[(i - 1) % len(markers)])
                 line.set_markevery(15)
                 mean_handles.append(line)
-                line_color = line.get_color()
-                scenario_colors[str(label)] = line_color
+                # Keep scenario_colors stable (do not overwrite with seaborn defaults).
 
                 if freq_mat.shape[0] > 1:
                     ax.fill_between(
@@ -1116,7 +1164,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
         # Draw last-command mean vertical lines and uncertainty spans after curves are plotted.
         last_cmd_handles: list[plt.Line2D] = []
-        if last_cmd_stats:
+        if last_cmd_stats and not has_drop:
             for (label, color, m, hw) in last_cmd_stats:
                 if m is None:
                     (h,) = ax.plot(
@@ -1125,7 +1173,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                         color=color,
                         linestyle="--",
                         linewidth=1.6,
-                        label=f"Last cmd: none received",
+                        label=f"Last setpoint: none received",
                     )
                     last_cmd_handles.append(h)
                     continue
@@ -1142,9 +1190,41 @@ def plot_comparison(args: argparse.Namespace) -> None:
                     linewidth=1.6,
                     alpha=0.95,
                     zorder=5,
-                    label=f"Last cmd t={m:.3f}s {band_txt}",
+                    label=f"Last setpoint t={m:.3f}s"#f"Last setpoint t={m:.3f}s {band_txt}",
                 )
                 last_cmd_handles.append(h)
+
+        # For drop batches, avoid plotting last-command time vertical lines.
+        if last_cmd_stats and has_drop:
+            # for (label, color, m, hw) in last_cmd_stats:
+            #     if m is None:
+            #         (h,) = ax.plot(
+            #             [],
+            #             [],
+            #             color=color,
+            #             linestyle="--",
+            #             linewidth=1.6,
+            #             label=f"Last setpoint: none received",
+            #         )
+            #         last_cmd_handles.append(h)
+            #         continue
+            #
+            #     if hw > 0:
+            #         ax.axvspan(m - hw, m + hw, color=color, alpha=0.12, linewidth=0, zorder=1)
+            #
+            #     band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
+            #     band_txt = f"(mean {band_txt})"
+            #     h = ax.axvline(
+            #         m,
+            #         color=color,
+            #         linestyle="--",
+            #         linewidth=1.6,
+            #         alpha=0.95,
+            #         zorder=5,
+            #         label=f"Last setpoint t={m:.3f}s {band_txt}",
+            #     )
+            #     last_cmd_handles.append(h)
+            pass
 
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Frequency [Hz]")
@@ -1172,21 +1252,32 @@ def plot_comparison(args: argparse.Namespace) -> None:
         handles.extend(mean_handles)
         handles.append(trip_handle)
         handles.extend(last_cmd_handles)
-
-        ax.legend(
-            handles=handles,
-            labels=[h.get_label() for h in handles],
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.18),
-            ncol=2,
-            fontsize=8,
-            frameon=True,
-            framealpha=0.9,
-            labelspacing=0.3,
-            handlelength=2.0,
-            handletextpad=0.6,
-            columnspacing=1.2,
-        )
+        
+        if not has_drop:
+            ax.legend(
+                handles=handles,
+                labels=[h.get_label() for h in handles],
+                loc="best",
+                ncol=2,
+                fontsize=8,
+                frameon=True,
+                framealpha=0.9,
+                handlelength=2.0,
+                handletextpad=0.6,
+                columnspacing=1.2,
+            )
+        else:
+            ax.legend(
+                handles=handles,
+                labels=[h.get_label() for h in handles],
+                loc="best",
+                fontsize=8,
+                frameon=True,
+                framealpha=0.9,
+                handlelength=2.0,
+                handletextpad=0.6,
+                columnspacing=1.2,
+            )
 
         out_name = str(Path(out_name_base).with_suffix(".pdf"))
         out_path = PLOTS_DIR / out_name
