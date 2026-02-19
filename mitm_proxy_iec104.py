@@ -308,7 +308,13 @@ def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None 
         lo = max(0.0, lo)
         hi = max(0.0, hi)
         # rng is set when use_random_per_packet=True
-        return float(rng.uniform(lo, hi))
+        sampled = float(rng.uniform(lo, hi))
+        # Compensate a baseline proxy-induced delay (server->client measurement transmission)
+        # observed to be ~100ms independent of tick rates.
+        # The experiment distributions are specified in terms of total delay; we subtract this
+        # baseline from the injected delay so the effective added delay matches the intended range.
+        sampled -= 0.100
+        return max(0.0, float(sampled))
 
     def _forward_one_shed(ioa: int, value: float, sampled_delay_s: float) -> None:
         ioa = int(ioa)

@@ -59,6 +59,7 @@ One-command multi-run (recommended):
 Batch experiments (single command):
 - Delay batch (direct + 3 delay ranges), 10 runs each:
 	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --out-name freq_comparison_delay_mean.pdf`
+	- Delay ranges: 150–350ms, 400–600ms, 650–850ms
 - Drop batch (direct + pdrop=0.1/0.5/0.9), 10 runs each, reuse existing direct results:
 	- `.venv/bin/python run_batch_experiment.py --batch drop --num-runs 10 --reuse-direct --out-name freq_comparison_drop_mean.pdf`
 - Plot-only regeneration from existing results (no rerun):
@@ -107,9 +108,9 @@ Example (delay scenarios):
 ```bash
 .venv/bin/python plotter_comparator.py \
 	case_iec104_direct_percmd="Direct" \
-	case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd="MITM delay 50–250ms" \
-	case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd="MITM delay 300–500ms" \
-	case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd="MITM delay 550–750ms" \
+	case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd="MITM delay 150–350ms" \
+	case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd="MITM delay 400–600ms" \
+	case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd="MITM delay 650–850ms" \
 	--band sd \
 	--out-name tmp_delay_compare.pdf \
 	--title "tmp-delay"
@@ -140,7 +141,7 @@ To inject extra network delay into IEC-104, run an IEC-104-aware MITM bridge (it
 Run (three terminals):
 - Terminal A (outstation): `.venv/bin/python system_RT_iec104.py --scenario mitm` (listens on `127.0.0.1:2404`)
 - Terminal B (MITM proxy, fixed delay): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20`
-- Terminal B (MITM proxy, random per-packet delay): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --shed-delay-min 0.05 --shed-delay-max 0.45 --seed 98`
+- Terminal B (MITM proxy, random per-packet delay): `.venv/bin/python mitm_proxy_iec104.py --listen-port 2405 --upstream-port 2404 --shed-delay-min 0.15 --shed-delay-max 0.35 --seed 98`
 - Terminal C (controller via proxy): `.venv/bin/python controller_iec104_master.py --scenario mitm` (defaults to port `2405`)
 
 Notes:

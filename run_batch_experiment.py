@@ -3,7 +3,7 @@
 
 Runs:
 - Direct (per-command)
-- MITM delay with ranges: 50–250ms, 300–500ms, 550–750ms
+- MITM delay with ranges: 150–350ms, 400–600ms, 650–850ms
 
 Then generates a comparison plot (mean ±95% CI by default).
 """
@@ -28,6 +28,10 @@ def _scenario_dirs() -> list[str]:
     # Default batch (delay ranges)
     return [
         "case_iec104_direct_percmd",
+        "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd",
+        "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd",
+        "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd",
+        # Backward-compatible cleanup for older naming/ranges.
         "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd",
         "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd",
         "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd",
@@ -122,16 +126,16 @@ def _build_plot_specs(latexEnabled: bool = False) -> list[str]:
     if not latexEnabled:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd", "label": "MITM delay 50–250ms"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd", "label": "MITM delay 300–500ms"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd", "label": "MITM delay 550–750ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay 150–350ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay 400–600ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay 650–850ms"},
         ]
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd", "label": "MITM delay $50–250\\mathrm{{ms}}$"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd", "label": "MITM delay $300–500\\mathrm{{ms}}$"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd", "label": "MITM delay $550–750\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay $150–350\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay $400–600\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay $650–850\\mathrm{{ms}}$"},
         ]
 
 
@@ -284,8 +288,8 @@ def main() -> int:
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
                 debug_timing=bool(args.debug_timing),
-                delay_min=0.05,
-                delay_max=0.25,
+                delay_min=0.15,
+                delay_max=0.35,
             )
             _run_campaign(
                 scenario="mitm",
@@ -295,8 +299,8 @@ def main() -> int:
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
                 debug_timing=bool(args.debug_timing),
-                delay_min=0.30,
-                delay_max=0.50,
+                delay_min=0.40,
+                delay_max=0.60,
             )
             _run_campaign(
                 scenario="mitm",
@@ -306,8 +310,8 @@ def main() -> int:
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),
                 debug_timing=bool(args.debug_timing),
-                delay_min=0.55,
-                delay_max=0.75,
+                delay_min=0.65,
+                delay_max=0.85,
             )
 
     # Plot aggregated comparison
