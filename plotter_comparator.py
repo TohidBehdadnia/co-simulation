@@ -8,7 +8,8 @@ import numpy as np
 import seaborn as sns
 
 sns.set_theme()
-
+# Increase font size
+sns.set_context("paper", font_scale=1.25)
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
@@ -485,6 +486,7 @@ def _maybe_generate_pcap_plots(
             palette=_palette_for(order),
             dodge=False,
             ax=ax,
+            medianprops={"color": "black", "linewidth": 1.5}
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
@@ -492,6 +494,7 @@ def _maybe_generate_pcap_plots(
         ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.set_size_inches(6, 4, forward=True)
         fig.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved pcap setpoint count boxplot to {out_path}")
@@ -532,6 +535,7 @@ def _maybe_generate_pcap_plots(
             palette=_palette_for(order),
             dodge=False,
             ax=ax,
+            medianprops={"color": "black", "linewidth": 1.5}
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
@@ -543,6 +547,7 @@ def _maybe_generate_pcap_plots(
         ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.set_size_inches(6, 4, forward=True)
         fig.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved pcap setpoint relative-arrival boxplot to {out_path}")
@@ -1283,6 +1288,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
         out_path = PLOTS_DIR / out_name
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.subplots_adjust(bottom=0.30)
+        fig.set_size_inches(6, 5, forward=True)
         fig.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved plot to {out_path}")
