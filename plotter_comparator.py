@@ -1,15 +1,57 @@
 import argparse
 import csv
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import sys
+
+import matplotlib
+
+# Enable LaTeX/PGF backend as early as possible (must happen before importing pyplot).
+# - CLI usage: `python plotter_comparator.py ... --latex`
+# - Programmatic usage: set env `CO_SIM_USE_LATEX=1` before importing this module.
+_WANT_LATEX = ("--latex" in sys.argv) or (str(os.environ.get("CO_SIM_USE_LATEX", "0")).strip() in {"1", "true", "yes"})
+
+
+def _apply_latex_rcparams() -> None:
+    # NOTE: This does not validate that a LaTeX distribution is installed.
+    # If missing, matplotlib will raise at render/save time.
+    matplotlib.rcParams.update(
+        {
+            "text.usetex": True,
+            "font.family": "serif",
+            # Use LaTeX fonts instead of matplotlib rcfonts.
+            "pgf.rcfonts": False,
+            "pgf.texsystem": "pdflatex",
+        }
+    )
+
+
+if _WANT_LATEX:
+    try:
+        # Prefer a LaTeX-native backend.
+        matplotlib.use("pgf")
+    except Exception:
+        # Backend switch can fail in some environments; keep going with default backend.
+        pass
+    try:
+        _apply_latex_rcparams()
+    except Exception:
+        # Fall back to default rcParams; we can still try to enable usetex later.
+        pass
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
 sns.set_theme()
-# Increase font size
-sns.set_context("paper", font_scale=1.25)
+
+# Seaborn theme setup can override some font-related rcParams; re-apply LaTeX config.
+if _WANT_LATEX:
+    try:
+        _apply_latex_rcparams()
+    except Exception:
+        pass
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
@@ -364,7 +406,6 @@ def _iter_iec104_type50_timestamps(
 def _maybe_generate_pcap_plots(
     *,
     out_stem: str,
-    dist_tag: str,
     scenario_specs: list["ScenarioSpec"],
     scenario_run_ids: dict[str, list[int]],
     max_runs: int,
@@ -381,7 +422,7 @@ def _maybe_generate_pcap_plots(
     - delay strategies (+ direct): distribution of inter-arrival times (IATs)
     - drop strategies (+ direct): distribution of per-run setpoint counts
 
-    dist_tag is kept for backward compatibility (used by other plot naming), but not used here.
+    Note: this function is independent of the removed 3D distribution plot feature.
     """
 
     logs_dir = BASE_DIR / "logs"
@@ -490,7 +531,7 @@ def _maybe_generate_pcap_plots(
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
-        ax.set_ylabel("# Setpoint commands received by server")
+        ax.set_ylabel("N. Setpoint commands received by server")
         ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -565,7 +606,7 @@ def _maybe_generate_pcap_plots(
         _save_count_boxplot(
             data=counts_drop_group,
             out_path=PLOTS_DIR / f"pcap_setpoint_count_to_server_drop.pdf",
-            title="# Setpoint commands to server (per scenario)",
+            title="N. Setpoint commands to server (per scenario)",
             order=order,
         )
 
@@ -759,19 +800,13 @@ def _parse_args() -> argparse.Namespace:
     )
 
     ap.add_argument(
-        "--dist3d",
+        "--latex",
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Also generate a 3D plot showing the distribution of frequency across runs over time "
-            "(surface: time × frequency bins × density)."
+            "Enable LaTeX text rendering (PGF backend when possible). "
+            "Requires a working LaTeX installation (e.g. pdflatex)."
         ),
-    )
-    ap.add_argument(
-        "--dist3d-bins",
-        type=int,
-        default=80,
-        help="Number of frequency bins to use for the 3D distribution plot (default: 80).",
     )
 
     ap.add_argument(
@@ -796,143 +831,31 @@ def _parse_args() -> argparse.Namespace:
     return ap.parse_args()
 
 
-def _plot_frequency_distribution_3d(
-    *,
-    ax,
-    t: np.ndarray,
-    freq_mat: np.ndarray,
-    title: str,
-    edges: np.ndarray,
-    color=None,
-) -> None:
-    """Plot a 3D surface of the frequency distribution over time onto an Axes3D.
-
-    For each time index, we compute a histogram across runs, then plot a surface:
-    X=time, Y=frequency bin centers, Z=density.
-    """
-    t = np.asarray(t, dtype=float)
-    freq_mat = np.asarray(freq_mat, dtype=float)
-    if t.ndim != 1 or freq_mat.ndim != 2:
-        raise ValueError("Expected t as 1D and freq_mat as 2D")
-    if freq_mat.shape[1] != t.shape[0]:
-        raise ValueError(f"Mismatched shapes: freq_mat{freq_mat.shape} vs t{t.shape}")
-
-    finite = np.isfinite(freq_mat)
-    if not np.any(finite):
-        raise ValueError("No finite frequency samples to plot")
-
-    edges = np.asarray(edges, dtype=float)
-    if edges.ndim != 1 or edges.size < 8:
-        raise ValueError("Invalid histogram edges")
-    centers = 0.5 * (edges[:-1] + edges[1:])
-
-    # Histogram per time step across runs.
-    z = np.empty((t.shape[0], centers.shape[0]), dtype=float)
-    for j in range(t.shape[0]):
-        col = freq_mat[:, j]
-        col = col[np.isfinite(col)]
-        if col.size == 0:
-            z[j, :] = np.nan
-            continue
-        h, _ = np.histogram(col, bins=edges, density=True)
-        z[j, :] = h
-
-    # Create a mesh for surface: time x freq.
-    tt, ff = np.meshgrid(t, centers, indexing="xy")
-    zz = z.T  # (freq_bins, time)
-
-    surf_kwargs = dict(rstride=1, cstride=1, linewidth=0, antialiased=True)
-    if color is not None:
-        surf_kwargs.update(color=color, alpha=0.90)
-    ax.plot_surface(tt, ff, zz, **surf_kwargs)
-    ax.set_xlabel("Time [s]")
-    ax.set_ylabel("Frequency [Hz]")
-    ax.set_zlabel("Density")
-    ax.set_title(str(title))
-
-
-def _plot_frequency_distribution_3d_grid(
-    *,
-    scenarios: list[tuple[str, object | None, np.ndarray, np.ndarray]],
-    out_path: Path,
-    bins: int,
-    title: str,
-) -> None:
-    """Plot a single PDF with a grid of 3D distribution subplots.
-
-    scenarios: list of (label, color, t, freq_mat)
-    """
-    if not scenarios:
-        return
-
-    bins = int(bins)
-    if bins <= 5:
-        raise ValueError("--dist3d-bins must be > 5")
-
-    # Use common bin edges across all scenarios for comparability.
-    fmin = float(np.nanmin([np.nanmin(m) for _, _, _, m in scenarios]))
-    fmax = float(np.nanmax([np.nanmax(m) for _, _, _, m in scenarios]))
-    if not np.isfinite(fmin) or not np.isfinite(fmax) or fmax <= fmin:
-        raise ValueError(f"Invalid frequency range: fmin={fmin}, fmax={fmax}")
-    pad = max(1e-6, 0.01 * (fmax - fmin))
-    edges = np.linspace(fmin - pad, fmax + pad, bins + 1, dtype=float)
-
-    # Layout: 2 columns for up to 8 scenarios (common batch sizes), else 3.
-    n = len(scenarios)
-    cols = 2 if n <= 8 else 3
-    rows = int(np.ceil(n / cols))
-
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-
-    fig = plt.figure(figsize=(6.0 * cols, 4.5 * rows))
-    fig.suptitle(str(title))
-    for idx, (label, color, t, mat) in enumerate(scenarios, start=1):
-        ax = fig.add_subplot(rows, cols, idx, projection="3d")
-        _plot_frequency_distribution_3d(
-            ax=ax,
-            t=t,
-            freq_mat=mat,
-            title=str(label),
-            edges=edges,
-            color=color,
-        )
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-
 def plot_comparison(args: argparse.Namespace) -> None:
+
+    # If module was imported without the early backend switch, still enable usetex when requested.
+    if bool(getattr(args, "latex", False)):
+        try:
+            _apply_latex_rcparams()
+        except Exception:
+            pass
 
     if not RESULTS_DIR.exists():
         raise FileNotFoundError(f"results folder not found: {RESULTS_DIR}")
 
     specs = _normalize_specs(args)
 
-    # Tag used to disambiguate combined 3D distribution filenames.
-    # (Common case: direct+delay batch vs direct+drop batch with same --out-name.)
     scenario_ids = [str(s.scenario_id) for s in specs]
     has_delay = any("delay" in sid for sid in scenario_ids)
     has_drop = any("drop" in sid for sid in scenario_ids)
-    if has_delay and not has_drop:
-        dist_tag = "delay"
-    elif has_drop and not has_delay:
-        dist_tag = "drop"
-    elif has_delay and has_drop:
-        dist_tag = "mixed"
-    else:
-        dist_tag = "scenarios"
 
-    want_dist3d = bool(getattr(args, "dist3d", False))
-    dist3d_bins = int(getattr(args, "dist3d_bins", 80))
     max_runs = int(getattr(args, "max_runs", 0) or 0)
     pcap_parser = str(getattr(args, "pcap_parser", "none") or "none").lower().strip()
     want_pcap_plots = pcap_parser != "none"
 
-    # When generating dist/pcap plots, skip the 2D frequency comparison plot.
-    want_freq_plot = not (want_dist3d or want_pcap_plots)
-    need_freq_data = want_freq_plot or want_dist3d
+    # When generating pcap-derived plots, skip the 2D frequency comparison plot.
+    want_freq_plot = not want_pcap_plots
+    need_freq_data = want_freq_plot
 
     band_mode = str(getattr(args, "band", "ci95")).lower()
 
@@ -953,7 +876,6 @@ def plot_comparison(args: argparse.Namespace) -> None:
     out_name_base = Path(str(args.out_name)).name
     out_stem = str(Path(out_name_base).with_suffix(""))
 
-    dist3d_scenarios: list[tuple[str, object | None, np.ndarray, np.ndarray]] = []
     scenario_run_ids: dict[str, list[int]] = {}
     scenario_order: list[str] = [str(s.label) for s in specs]
     # Assign Direct the first color (blue) even if user-provided specs are not ordered.
@@ -1106,6 +1028,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                     ax=ax,
                     label=label_str,
                     linewidth=2.0,
+                    markersize=6,
                     color=line_color,
                 )
                 if len(ax.lines) <= n_lines_before:
@@ -1148,20 +1071,6 @@ def plot_comparison(args: argparse.Namespace) -> None:
                         last_cmd_stats.append((label, line_color, None, 0.0))
                 else:
                     last_cmd_stats.append((label, line_color, None, 0.0))
-            else:
-                # No 2D plot: still pick a consistent color for dist3d.
-                line_color = scenario_colors.get(str(label), base_palette[(i - 1) % len(base_palette)])
-                scenario_colors[str(label)] = line_color
-
-            if want_dist3d:
-                dist3d_scenarios.append(
-                    (
-                        str(label),
-                        line_color,
-                        np.asarray(t_plot, dtype=float),
-                        np.asarray(freq_mat, dtype=float),
-                    )
-                )
         i += 1
 
     if want_freq_plot:
@@ -1178,7 +1087,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                         color=color,
                         linestyle="--",
                         linewidth=1.6,
-                        label=f"Last setpoint: none received",
+                        label=f"Last set.: none received",
                     )
                     last_cmd_handles.append(h)
                     continue
@@ -1188,6 +1097,9 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
                 band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
                 band_txt = f"(mean {band_txt})"
+                label_str = f"Last set. t={m:.3f}s"#f"Last setpoint t={m:.3f}s {band_txt}"
+                if _WANT_LATEX:
+                    label_str = f"Last set. $t={m:.3f}\\mathrm{{s}}$"
                 h = ax.axvline(
                     m,
                     color=color,
@@ -1195,7 +1107,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                     linewidth=1.6,
                     alpha=0.95,
                     zorder=5,
-                    label=f"Last setpoint t={m:.3f}s"#f"Last setpoint t={m:.3f}s {band_txt}",
+                    label=label_str
                 )
                 last_cmd_handles.append(h)
 
@@ -1209,7 +1121,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
             #             color=color,
             #             linestyle="--",
             #             linewidth=1.6,
-            #             label=f"Last setpoint: none received",
+            #             label=f"Last set.: none received",
             #         )
             #         last_cmd_handles.append(h)
             #         continue
@@ -1226,7 +1138,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
             #         linewidth=1.6,
             #         alpha=0.95,
             #         zorder=5,
-            #         label=f"Last setpoint t={m:.3f}s {band_txt}",
+            #         label=f"Last set. t={m:.3f}s {band_txt}",
             #     )
             #     last_cmd_handles.append(h)
             pass
@@ -1243,6 +1155,10 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 if tick_end >= tick_start:
                     ax.set_xticks(np.arange(tick_start, tick_end + 1, 1))
 
+        label_str = f"Gen 2 trip t={float(t_trip):.1f}s"
+        if _WANT_LATEX:
+            label_str = f"Gen 2 trip $t={float(t_trip):.1f}\\mathrm{{s}}$"
+        
         trip_handle = ax.axvline(
             float(t_trip),
             color="k",
@@ -1250,7 +1166,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
             linewidth=1.8,
             alpha=0.95,
             zorder=10,
-            label=f"Gen 2 trip t={float(t_trip):.1f} s",
+            label=label_str,
         )
 
         handles: list[plt.Line2D] = []
@@ -1314,20 +1230,9 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 w.writerows(scenario_summary_rows)
             print(f"Saved strategy stats CSV to {csv_path}")
 
-    if want_dist3d and dist3d_scenarios:
-        dist3d_all_path = PLOTS_DIR / f"{out_stem}_dist3d_all_{dist_tag}.pdf"
-        _plot_frequency_distribution_3d_grid(
-            scenarios=dist3d_scenarios,
-            out_path=dist3d_all_path,
-            bins=dist3d_bins,
-            title=f"Frequency distribution (3D) - all scenarios",
-        )
-        print(f"Saved 3D distribution plot to {dist3d_all_path}")
-
     if want_pcap_plots:
         _maybe_generate_pcap_plots(
             out_stem=out_stem,
-            dist_tag=dist_tag,
             scenario_specs=specs,
             scenario_run_ids=scenario_run_ids,
             max_runs=max_runs,

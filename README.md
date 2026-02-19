@@ -61,26 +61,29 @@ Batch experiments (single command):
 	- `.venv/bin/python run_batch_experiment.py --batch delay --num-runs 10 --out-name freq_comparison_delay_mean.pdf`
 - Drop batch (direct + pdrop=0.1/0.5/0.9), 10 runs each, reuse existing direct results:
 	- `.venv/bin/python run_batch_experiment.py --batch drop --num-runs 10 --reuse-direct --out-name freq_comparison_drop_mean.pdf`
-- Add the combined 3D distribution plot (one subplot per scenario):
-	- `.venv/bin/python run_batch_experiment.py --batch drop --only-plot --num-runs 10 --band sd --dist3d --dist3d-bins 100 --out-name freq_comparison_drop_mean.pdf`
 - Plot-only regeneration from existing results (no rerun):
 	- `.venv/bin/python run_batch_experiment.py --batch delay --only-plot --band ci95 --out-name freq_comparison_delay_mean.pdf`
 	- `.venv/bin/python run_batch_experiment.py --batch drop --only-plot --band both --out-name freq_comparison_drop_mean.pdf`
 
 Aggregated plots (from existing results):
 - `plotter_comparator.py` overlays mean frequency-vs-time curves across scenarios (band: `--band ci95` or `--band sd`).
-- `--dist3d` additionally writes a single PDF with a grid of 3D subplots (one per scenario) showing the per-time frequency distribution across runs.
 - If `logs/run_<id>/traffic.pcap` exists (tcpdump enabled during runs), `plotter_comparator.py` also generates pcap-derived summary plots:
 	- One boxplot for direct + delay strategies.
 	- One boxplot for direct + drop strategies.
 	- Delay plot shows setpoint arrival times relative to the first measurement snapshot (per run).
 	- Drop plot shows the distribution of per-run counts of IEC-104 `C_SE_NC_1` setpoints to the outstation/server.
 
+LaTeX rendering (optional):
+- Both `run_batch_experiment.py` and `plotter_comparator.py` support `--latex` to render plot text via LaTeX (PGF backend when possible).
+- This requires a working LaTeX installation (at least `pdflatex`; packages may vary by distro). If LaTeX is missing, matplotlib may fail at `savefig` time.
+- Example (plot-only with LaTeX text):
+	- `.venv/bin/python run_batch_experiment.py --batch delay --only-plot --band ci95 --latex --out-name freq_comparison_delay_mean.pdf`
+	- `.venv/bin/python plotter_comparator.py case_iec104_direct_percmd="Direct" ... --band ci95 --latex --out-name tmp.pdf --title "tmp"`
+
 Note:
-- If you request `--dist3d` or enable pcap plots via `--pcap-parser` (anything other than `none`), the 2D frequency comparison plot is not generated.
+- If you enable pcap plots via `--pcap-parser` (anything other than `none`), the 2D frequency comparison plot is not generated.
 - Output naming:
 	- 2D comparison: `plots/<out-name>`
-	- 3D distribution: `plots/<out-stem>_dist3d_all_<delay|drop|mixed>.pdf`
 	- PCAP setpoint arrival times (delay+direct): `plots/<out-stem>_pcap_setpoint_arrival_rel_to_meas_delay.pdf`
 	- PCAP setpoint count (drop+direct): `plots/<out-stem>_pcap_setpoint_count_to_server_drop.pdf`
 - Run limiting:
@@ -95,7 +98,7 @@ Example (drop scenarios):
 	case_iec104_mitm_drop_pdrop0p1_percmd="MITM drop p=0.1" \
 	case_iec104_mitm_drop_pdrop0p5_percmd="MITM drop p=0.5" \
 	case_iec104_mitm_drop_pdrop0p9_percmd="MITM drop p=0.9" \
-	--band sd --dist3d --dist3d-bins 100 \
+	--band sd \
 	--out-name tmp_drop_compare.pdf \
 	--title "tmp-drop"
 ```
@@ -107,7 +110,7 @@ Example (delay scenarios):
 	case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd="MITM delay 50–250ms" \
 	case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd="MITM delay 300–500ms" \
 	case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd="MITM delay 550–750ms" \
-	--band sd --dist3d --dist3d-bins 100 \
+	--band sd \
 	--out-name tmp_delay_compare.pdf \
 	--title "tmp-delay"
 ```

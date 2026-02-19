@@ -118,22 +118,38 @@ def _run_campaign(
         raise SystemExit(rc)
 
 
-def _build_plot_specs() -> list[str]:
-    return [
-        {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-        {"scenario_id": "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd", "label": "MITM delay 50–250ms"},
-        {"scenario_id": "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd", "label": "MITM delay 300–500ms"},
-        {"scenario_id": "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd", "label": "MITM delay 550–750ms"},
-    ]
+def _build_plot_specs(latexEnabled: bool = False) -> list[str]:
+    if not latexEnabled:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd", "label": "MITM delay 50–250ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd", "label": "MITM delay 300–500ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd", "label": "MITM delay 550–750ms"},
+        ]
+    else:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p05_dmax0p25_percmd", "label": "MITM delay $50–250\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p3_dmax0p5_percmd", "label": "MITM delay $300–500\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p55_dmax0p75_percmd", "label": "MITM delay $550–750\\mathrm{{ms}}$"},
+        ]
 
 
-def _build_plot_specs_drop() -> list[dict]:
-    return [
-        {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-        {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop p=0.1"},
-        {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop p=0.5"},
-        {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop p=0.9"},
-    ]
+def _build_plot_specs_drop(latexEnabled: bool = False) -> list[dict]:
+    if not latexEnabled:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop p=0.1"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop p=0.5"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop p=0.9"},
+        ]
+    else:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop $p=0.1$"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop $p=0.5$"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop $p=0.9$"},
+        ]
 
 
 def main() -> int:
@@ -175,26 +191,21 @@ def main() -> int:
         help="Which plot(s) to generate: 95%% CI of mean (ci95), ±1 SD (sd), or both.",
     )
     ap.add_argument(
-        "--dist3d",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Also generate a 3D distribution plot (single PDF with one subplot per scenario) "
-            "showing the frequency distribution across runs over time."
-        ),
-    )
-    ap.add_argument(
-        "--dist3d-bins",
-        type=int,
-        default=100,
-        help="Number of frequency bins for the 3D distribution plot (default: 100).",
-    )
-    ap.add_argument(
         "--pcap-parser",
         choices=["none", "dpkt"],
         default="none",
         help=(
             "Parser to use for optional pcap-derived plots: none (default) or dpkt."
+        ),
+    )
+
+    ap.add_argument(
+        "--latex",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable LaTeX text rendering in plots (PGF backend when possible). "
+            "Requires a working LaTeX installation (e.g. pdflatex)."
         ),
     )
 
@@ -300,17 +311,21 @@ def main() -> int:
             )
 
     # Plot aggregated comparison
+    if bool(args.latex):
+        # plotter_comparator reads this env var before importing pyplot.
+        os.environ["CO_SIM_USE_LATEX"] = "1"
+
     import plotter_comparator
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    plot_specs = _build_plot_specs_drop() if str(args.batch) == "drop" else _build_plot_specs()
+    plot_specs = _build_plot_specs_drop(args.latex) if str(args.batch) == "drop" else _build_plot_specs(args.latex)
 
     band_sel = str(args.band)
     bands = [band_sel] if band_sel in {"ci95", "sd"} else ["sd", "ci95"]
 
-    # If the user requested only extra plots (dist3d or pcap-derived), run a single pass.
+    # If the user requested only extra plots (pcap-derived), run a single pass.
     # The extra plots don't depend on the band, and plotter_comparator will skip the 2D plot.
-    only_extras = bool(args.dist3d) or str(args.pcap_parser).lower().strip() != "none"
+    only_extras = str(args.pcap_parser).lower().strip() != "none"
     if only_extras:
         bands = ["sd"]
 
@@ -320,10 +335,6 @@ def main() -> int:
     for b in bands:
         out_name = out_name_raw if band_sel != "both" else f"{base}_{b}.pdf"
         out_name = str(Path(out_name).with_suffix(".pdf"))
-
-        # The 3D distribution does not depend on the band; when generating both bands,
-        # create it only once to avoid duplicate outputs.
-        want_dist3d = bool(args.dist3d) and (band_sel != "both" or b == "sd")
 
         # Keep user-provided titles as-is; for the default title, append the band.
         title = str(args.title)
@@ -335,10 +346,9 @@ def main() -> int:
             out_name=out_name,
             title=title,
             band=b,
-            dist3d=want_dist3d,
-            dist3d_bins=int(args.dist3d_bins),
             max_runs=int(args.num_runs),
             pcap_parser=str(args.pcap_parser),
+            latex=bool(args.latex),
         )
         plotter_comparator.plot_comparison(plot_args)
     return 0
