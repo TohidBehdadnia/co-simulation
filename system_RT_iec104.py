@@ -182,6 +182,8 @@ def run_multi_stage_tds(ss: andes.system.System, events: list[tuple[float, dict]
             continue
 
         ss.TDS.config.tf = float(t_evt)
+        # Note: TDS.run() automatically resumes simulation and appends results.
+        # It does not overwrite previous simulation data.
         ss.TDS.run()
         t_cur = float(t_evt)
 
