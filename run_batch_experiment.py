@@ -51,9 +51,17 @@ def _scenario_dirs_drop() -> list[str]:
 def _scenario_dirs_mod() -> list[str]:
     return [
         "case_iec104_direct_percmd",
+        "case_iec104_mitm_mod_pmod0p1_f0p1_percmd",
+        "case_iec104_mitm_mod_pmod0p5_f0p1_percmd",
+        "case_iec104_mitm_mod_pmod0p9_f0p1_percmd",
+        # Backward-compatible cleanup for older naming (without factor tag)
         "case_iec104_mitm_mod_pmod0p1_percmd",
         "case_iec104_mitm_mod_pmod0p5_percmd",
         "case_iec104_mitm_mod_pmod0p9_percmd",
+        # Backward-compatible cleanup for previous mod-factor campaign.
+        "case_iec104_mitm_mod_pmod0p1_f1p5_percmd",
+        "case_iec104_mitm_mod_pmod0p5_f1p5_percmd",
+        "case_iec104_mitm_mod_pmod0p9_f1p5_percmd",
     ]
 
 
@@ -66,6 +74,15 @@ def _clean_results() -> None:
 
 def _clean_results_drop_mod(reuse_direct: bool) -> None:
     for name in _scenario_dirs_drop():
+        if reuse_direct and name == "case_iec104_direct_percmd":
+            continue
+        path = RESULTS_DIR / name
+        if path.exists() and path.is_dir():
+            shutil.rmtree(path)
+
+
+def _clean_results_mod(reuse_direct: bool) -> None:
+    for name in _scenario_dirs_mod():
         if reuse_direct and name == "case_iec104_direct_percmd":
             continue
         path = RESULTS_DIR / name
@@ -170,16 +187,16 @@ def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
     if not latexEnabled:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. p=0.1"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. p=0.5"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. p=0.9"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f0p1_percmd", "label": "MITM mod. p=0.1"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f0p1_percmd", "label": "MITM mod. p=0.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f0p1_percmd", "label": "MITM mod. p=0.9"},
         ]
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. $p=0.1$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmodp0p5_f1p5_percmd", "label": "MITM mod. $p=0.5$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmodp0p9_f1p5_percmd", "label": "MITM mod. $p=0.9$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f0p1_percmd", "label": "MITM mod. $p=0.1$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f0p1_percmd", "label": "MITM mod. $p=0.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f0p1_percmd", "label": "MITM mod. $p=0.9$"},
         ]
 
 
@@ -247,8 +264,10 @@ def main() -> int:
         raise ValueError("--num-runs must be > 0")
 
     if bool(args.clean) and not bool(args.only_plot):
-        if str(args.batch) == "drop" or str(args.batch) == "mod":
+        if str(args.batch) == "drop":
             _clean_results_drop_mod(reuse_direct=bool(args.reuse_direct))
+        elif str(args.batch) == "mod":
+            _clean_results_mod(reuse_direct=bool(args.reuse_direct))
         else:
             _clean_results()
 
@@ -296,7 +315,7 @@ def main() -> int:
                 drop_prob=0.9,
             )
         elif str(args.batch) == "mod":
-            mod_factor = 1.5
+            mod_factor = 0.1
             if not bool(args.reuse_direct):
                 _run_campaign(
                     scenario="direct",

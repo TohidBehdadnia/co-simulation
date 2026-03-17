@@ -7,13 +7,13 @@ Design goal (lab experiments):
 - Act as an IEC-104 outstation (server) towards the *real master/controller*.
 - Act as an IEC-104 master (client) towards the *real outstation*.
 - Forward monitoring traffic in both directions.
-- Inject an additional delay ONLY for the shedding setpoint command packets.
+- Inject an additional delay ONLY for the load setpoint command packets.
 
 This proxy is tailored to the IOA mapping used by system_RT_iec104.py:
 - CA 1
 - IOA 9000: lost_p measurement (M_ME_NC_1)
 - IOA 10000+bus: Ppf measurement (M_ME_NC_1)
-- IOA 20000+bus: shed delta command (C_SE_NC_1)
+- IOA 20000+bus: target load active power setpoint (C_SE_NC_1)
 
 Run example (3 terminals):
 - Outstation:  .venv/bin/python system_RT_iec104.py
@@ -46,18 +46,18 @@ def is_shed_command_ioa(ioa: int, shed_buses: list[int]) -> bool:
 
 
 def _parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="IEC-104 MITM proxy (c104) delaying only shed commands")
+    ap = argparse.ArgumentParser(description="IEC-104 MITM proxy (c104) delaying only setpoint commands")
     ap.add_argument("--listen-host", default="127.0.0.1")
     ap.add_argument("--listen-port", type=int, default=2405, help="where the real controller/master connects")
     ap.add_argument("--upstream-host", default="127.0.0.1")
     ap.add_argument("--upstream-port", type=int, default=2404, help="real outstation server port")
     ap.add_argument("--ca", type=int, default=1, help="station common address")
-    ap.add_argument("--shed-delay", type=float, default=0.0, help="additional delay (seconds) applied ONLY to shed commands")
+    ap.add_argument("--shed-delay", type=float, default=0.0, help="additional delay (seconds) applied ONLY to setpoint commands")
     ap.add_argument(
         "--shed-delay-min",
         type=float,
         default=None,
-        help="if set together with --shed-delay-max, apply a per-packet random delay U[min,max] to EACH shed command packet",
+        help="if set together with --shed-delay-max, apply a per-packet random delay U[min,max] to EACH setpoint command packet",
     )
     ap.add_argument(
         "--shed-delay-max",
@@ -69,13 +69,13 @@ def _parse_args() -> argparse.Namespace:
         "--command-drop-prob",
         type=float,        
         default=0.0,
-        help="probability [0.0-1.0] of randomly dropping a shed command packet instead of forwarding",
+        help="probability [0.0-1.0] of randomly dropping a setpoint command packet instead of forwarding",
     )
     ap.add_argument(
         "--command-mod-prob",
         type=float,        
         default=0.0,
-        help="probability [0.0-1.0] of randomly modifying a shed command packet instead of forwarding",
+        help="probability [0.0-1.0] of randomly modifying a setpoint command packet instead of forwarding",
     )
     ap.add_argument(
         "--command-mod-factor",

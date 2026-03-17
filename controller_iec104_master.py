@@ -7,8 +7,8 @@ It connects to the outstation started by system_RT_iec104.py, receives:
 - lost_p (IOA 9000)
 - Ppf values for candidate buses (IOA 10000 + bus)
 
-Then it computes proportional shedding and sends shed deltas back as setpoints:
-- shed_delta (IOA 20000 + bus)
+Then it computes proportional load reduction and sends target absolute P setpoints:
+- target_ppf (IOA 20000 + bus)
 
 This is intended for local lab analysis (delay/jitter experiments, MITM on TCP, etc.).
 """
@@ -74,7 +74,7 @@ def _parse_args() -> argparse.Namespace:
         "--inter-command-sleep-ms",
         type=float,
         default=float(os.environ.get("IEC104_INTER_COMMAND_SLEEP_MS", "0")),
-        help="Optional sleep between successive shed commands (ms). Use to make per-command effects visible.",
+        help="Optional sleep between successive setpoint commands (ms). Use to make per-command effects visible.",
     )
     ap.add_argument(
         "--debug-timing",
@@ -91,14 +91,13 @@ def _parse_args() -> argparse.Namespace:
     return ap.parse_args()
 
 
-def compute_shed_by_bus(lost_p: float, ppf_by_bus: dict[int, float]) -> dict[int, float]:
+def compute_target_ppf_by_bus(lost_p: float, ppf_by_bus: dict[int, float]) -> dict[int, float]:
     total = sum(float(v) for v in ppf_by_bus.values())
     if total <= 0.0:
-        n = max(len(ppf_by_bus), 1)
-        per = float(lost_p) / n
-        return {bus: per for bus in ppf_by_bus}
+        return {bus: 0.0 for bus in ppf_by_bus}
 
-    return {bus: float(lost_p) * float(ppf) / total for bus, ppf in ppf_by_bus.items()}
+    shed_by_bus = {bus: float(lost_p) * float(ppf) / total for bus, ppf in ppf_by_bus.items()}
+    return {bus: max(0.0, float(ppf_by_bus[bus]) - float(shed_by_bus[bus])) for bus in ppf_by_bus}
 
 
 def run_controller_once(args: argparse.Namespace) -> None:
@@ -240,12 +239,12 @@ def _run_controller_once_inner(args: argparse.Namespace, *, open_muted_stuck_s: 
             raise RuntimeError(f"Failed to add Ppf monitoring point for bus {bus}")
         ppf_points[bus] = pt
 
-    # Command points
+    # Setpoint command points
     cmd_points = {}
     for bus in expected_buses:
         pt = station.add_point(io_address=IOA_SHED_BASE + bus, type=c104.Type.C_SE_NC_1)
         if pt is None:
-            raise RuntimeError(f"Failed to add shed command point for bus {bus}")
+            raise RuntimeError(f"Failed to add setpoint command point for bus {bus}")
         cmd_points[bus] = pt
 
     accepted_monitor_cots = {
@@ -274,20 +273,23 @@ def _run_controller_once_inner(args: argparse.Namespace, *, open_muted_stuck_s: 
     def send_commands(lost_p: float, ppf_by_bus: dict[int, float]) -> None:
         np.random.seed(args.seed) # Set random seed for reproducibility of bus shuffling.
         nonlocal sent
-        shed_by_bus = compute_shed_by_bus(lost_p, ppf_by_bus)
+        target_ppf_by_bus = compute_target_ppf_by_bus(lost_p, ppf_by_bus)
 
         inter_sleep_s = max(0.0, float(args.inter_command_sleep_ms)) / 1000.0
 
         print(f"[iec104-controller] lost_p={lost_p:.6f} pu", flush=True)
         for bus in expected_buses:
-            print(f"  bus={bus:>2} Ppf={ppf_by_bus[bus]:.6f} -> shed={shed_by_bus[bus]:.6f} pu", flush=True)
+            print(
+                f"  bus={bus:>2} Ppf={ppf_by_bus[bus]:.6f} -> target_Ppf={target_ppf_by_bus[bus]:.6f} pu",
+                flush=True,
+            )
 
         t0 = time.perf_counter()
         all_ok = True
         # Shuffle expected busses to modify the order of commands accross runs
         np.random.shuffle(expected_buses)
         for bus in expected_buses:
-            cmd_points[bus].value = float(shed_by_bus[bus])
+            cmd_points[bus].value = float(target_ppf_by_bus[bus])
             ok = cmd_points[bus].transmit(c104.Cot.ACTIVATION)
             all_ok = all_ok and bool(ok)
             if inter_sleep_s > 0:

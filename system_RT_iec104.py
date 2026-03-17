@@ -12,10 +12,10 @@ Protocol mapping (simple lab mapping):
 - Common address (CA): 1
 - IOA 9000: lost generation active power `lost_p` (M_ME_NC_1)
 - IOA 10000 + bus: load active power `Ppf` for shedding-candidate bus (M_ME_NC_1)
-- IOA 20000 + bus: shed command amount (delta P to subtract) for that bus (C_SE_NC_1)
+- IOA 20000 + bus: target load active power setpoint (absolute value) for that bus (C_SE_NC_1)
 
 The delay is measured from the time the outstation transmits the measurements to the
-moment it has received all shed commands.
+moment it has received all setpoint commands.
 """
 
 import argparse
@@ -108,11 +108,10 @@ def build_system(t_shed: float, shed_dict: dict) -> andes.system.System:
     ss = _build_andes_base_system()
 
     pq_ids = list(shed_dict.keys())
-    pq_p_before = ss.PQ.get(src="Ppf", idx=pq_ids, attr="v")
 
     pq_p_after = []
-    for dev, p0 in zip(pq_ids, pq_p_before):
-        pq_p_after.append(float(p0) - float(shed_dict[dev]))
+    for dev in pq_ids:
+        pq_p_after.append(float(shed_dict[dev]))
 
     ss._pq_ids_to_shed = pq_ids
     ss._pq_p_after = np.array(pq_p_after, dtype=float)
@@ -244,7 +243,20 @@ def plot_frequency(t, freq, title: str, filename: str, last_cmd_time: float | No
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Frequency [Hz]")
     ax.set_title(title)
-    ax.set_ylim(FREQ_Y_LIMS[0], FREQ_Y_LIMS[1])
+
+    # Keep default zoom when data fits, but expand if needed to avoid clipping.
+    y_low, y_high = float(FREQ_Y_LIMS[0]), float(FREQ_Y_LIMS[1])
+    freq_arr = np.asarray(freq, dtype=float)
+    finite = freq_arr[np.isfinite(freq_arr)]
+    if finite.size:
+        fmin = float(np.min(finite))
+        fmax = float(np.max(finite))
+        if fmin < y_low or fmax > y_high:
+            span = max(fmax - fmin, 1e-6)
+            pad = max(0.02, 0.05 * span)
+            y_low = min(y_low, fmin - pad)
+            y_high = max(y_high, fmax + pad)
+    ax.set_ylim(y_low, y_high)
 
     ax.legend(loc="best")
 
@@ -292,7 +304,7 @@ def _parse_args() -> argparse.Namespace:
         "--timeout",
         type=float,
         default=float(_env_float("IEC104_TIMEOUT", 20.0)),
-        help="Max seconds to wait for shed commands after transmitting measurements (default: 20s)."
+        help="Max seconds to wait for setpoint commands after transmitting measurements (default: 20s)."
     )
     parser.add_argument(
         "--tick-ms",
@@ -306,8 +318,8 @@ def _parse_args() -> argparse.Namespace:
         default=os.environ.get("IEC104_SHED_MODE", "per_command"),
         help=(
             "How to apply shedding in the ANDES simulation. "
-            "all_at_once: apply all shed deltas at t_trip + delay(last command). "
-            "per_command: apply each bus's shed delta at its own command-arrival time."
+            "all_at_once: apply all received target setpoints at t_trip + delay(last command). "
+            "per_command: apply each bus's target setpoint at its own command-arrival time."
         ),
     )
     parser.add_argument(
@@ -623,25 +635,25 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
             raise TimeoutError("Failed to transmit measurements (no master?) within 20s")
         time.sleep(0.01)
 
-    print("[iec104-system] measurements transmitted, waiting for shed commands...")
+    print("[iec104-system] measurements transmitted, waiting for setpoint commands...")
 
     if not all_received.wait(timeout=args.timeout):
         # In per_command mode we can still proceed with partial commands.
         # In MITM drop mode, commands may never arrive: proceed with whatever we got.
         if args.shed_mode == "all_at_once" and not allow_partial_commands:
             server.stop()
-            raise TimeoutError("Did not receive all shed commands within 20s")
+            raise TimeoutError("Did not receive all setpoint commands within 20s")
         print(
-            f"[iec104-system] WARNING: not all shed commands received within timeout; proceeding with {len(received_shed_by_bus)}/{len(expected_buses)} commands",
+            f"[iec104-system] WARNING: not all setpoint commands received within timeout; proceeding with {len(received_shed_by_bus)}/{len(expected_buses)} commands",
             flush=True,
         )
 
     if not received_shed_by_bus and not allow_partial_commands:
         server.stop()
-        raise TimeoutError("Did not receive any shed commands")
+        raise TimeoutError("Did not receive any setpoint commands")
     elif not received_shed_by_bus and allow_partial_commands:
         print(
-            "[iec104-system] WARNING: no shed commands received (MITM drop mode); proceeding with no shedding applied",
+            "[iec104-system] WARNING: no setpoint commands received (MITM drop mode); proceeding with no shedding applied",
             flush=True,
         )
 
@@ -684,11 +696,11 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
                 )
 
         shed_dict: dict = {}
-        for bus, shed_amt in received_shed_by_bus.items():
+        for bus, stpt in received_shed_by_bus.items():
             if int(bus) not in pq_by_bus:
                 continue
             pq_id = pq_by_bus[int(bus)]
-            shed_dict[pq_id] = float(shed_amt)
+            shed_dict[pq_id] = float(stpt)
 
         if len(received_shed_by_bus) == len(expected_buses):
             print(f"[iec104-system] received all commands; delay={delay:.6f} s; t_shed={t_shed:.6f} s")
@@ -727,7 +739,7 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
         ppf_base = ss.PQ.get(src="Ppf", idx=pq_ids_all, attr="v")
         ppf_base_by_pq = {pq_id: float(p) for pq_id, p in zip(pq_ids_all, ppf_base)}
 
-        for bus, shed_amt in received_shed_by_bus.items():
+        for bus, stpt in received_shed_by_bus.items():
             if bus not in pq_by_bus:
                 continue
             if bus not in received_shed_time_by_bus:
@@ -738,7 +750,7 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
             t_evt = float(t_trip + d)
 
             pq_id = pq_by_bus[int(bus)]
-            new_ppf = float(ppf_base_by_pq[pq_id]) - float(shed_amt)
+            new_ppf = float(stpt)
 
             # Keep events separate per command to make individual steps visible.
             events.append((float(t_evt), {pq_id: float(new_ppf)}))
@@ -779,7 +791,7 @@ def _run_once(args: argparse.Namespace, run_id: int) -> None:
                 )
 
         print(
-            f"[iec104-system] per_command shedding events: n={len(events)} last_delay={measured_delay:.6f} s",
+            f"[iec104-system] per_command setpoint events: n={len(events)} last_delay={measured_delay:.6f} s",
             flush=True,
         )
 
