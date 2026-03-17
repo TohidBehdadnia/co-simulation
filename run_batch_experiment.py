@@ -48,6 +48,14 @@ def _scenario_dirs_drop() -> list[str]:
         "case_iec104_mitm_drop_pdrop0p9_percmd",
     ]
 
+def _scenario_dirs_mod() -> list[str]:
+    return [
+        "case_iec104_direct_percmd",
+        "case_iec104_mitm_mod_pmod0p1_percmd",
+        "case_iec104_mitm_mod_pmod0p5_percmd",
+        "case_iec104_mitm_mod_pmod0p9_percmd",
+    ]
+
 
 def _clean_results() -> None:
     for name in _scenario_dirs():
@@ -56,7 +64,7 @@ def _clean_results() -> None:
             shutil.rmtree(path)
 
 
-def _clean_results_drop(reuse_direct: bool) -> None:
+def _clean_results_drop_mod(reuse_direct: bool) -> None:
     for name in _scenario_dirs_drop():
         if reuse_direct and name == "case_iec104_direct_percmd":
             continue
@@ -77,6 +85,8 @@ def _run_campaign(
     delay_min: float | None = None,
     delay_max: float | None = None,
     drop_prob: float | None = None,
+    mod_prob: float | None = None,
+    mod_factor: float | None = None,
 ) -> None:
     import run_iec104_scenario
 
@@ -106,7 +116,9 @@ def _run_campaign(
         proxy_shed_delay=0.0,
         proxy_shed_delay_min=delay_min,
         proxy_shed_delay_max=delay_max,
-        proxy_command_drop_prob=0.0,
+        proxy_command_drop_prob=float(drop_prob) if drop_prob is not None else 0.0,
+        proxy_command_mod_prob=float(mod_prob) if mod_prob is not None else 0.0,
+        proxy_command_mod_factor=float(mod_factor) if mod_factor is not None else 1.0,
         # For drop batch
         # (used only when scenario=mitm, mitm_mode=drop)
         #
@@ -114,9 +126,6 @@ def _run_campaign(
         # The orchestrator will apply per-run seed derivation.
         proxy_seed=base_seed,
     )
-
-    if drop_prob is not None:
-        args.proxy_command_drop_prob = float(drop_prob)
 
     orchestrator = run_iec104_scenario.IEC104ScenarioOrchestrator(args)
     rc = orchestrator.run()
@@ -157,6 +166,23 @@ def _build_plot_specs_drop(latexEnabled: bool = False) -> list[dict]:
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop $p=0.9$"},
         ]
 
+def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
+    if not latexEnabled:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. p=0.1"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. p=0.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. p=0.9"},
+        ]
+    else:
+        return [
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. $p=0.1$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmodp0p5_f1p5_percmd", "label": "MITM mod. $p=0.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmodp0p9_f1p5_percmd", "label": "MITM mod. $p=0.9$"},
+        ]
+
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Run all IEC-104 scenarios (10 runs each) and generate aggregated plot")
@@ -171,9 +197,9 @@ def main() -> int:
     )
     ap.add_argument(
         "--batch",
-        choices=["delay", "drop"],
+        choices=["delay", "drop", "mod"],
         default="delay",
-        help="Which batch to execute: delay ranges (delay) or drop probabilities (drop).",
+        help="Which batch to execute: delay ranges (delay), drop probabilities (drop) or  modification probabilities (mod). Default is delay.",
     )
     ap.add_argument(
         "--reuse-direct",
@@ -221,8 +247,8 @@ def main() -> int:
         raise ValueError("--num-runs must be > 0")
 
     if bool(args.clean) and not bool(args.only_plot):
-        if str(args.batch) == "drop":
-            _clean_results_drop(reuse_direct=bool(args.reuse_direct))
+        if str(args.batch) == "drop" or str(args.batch) == "mod":
+            _clean_results_drop_mod(reuse_direct=bool(args.reuse_direct))
         else:
             _clean_results()
 
@@ -235,7 +261,7 @@ def main() -> int:
                     num_runs=int(args.num_runs),
                     start_id=2001,
                     run_timeout=float(args.run_timeout),
-                    base_seed=None,
+                    base_seed=int(args.base_seed),
                     debug_timing=bool(args.debug_timing),
                 )
 
@@ -269,6 +295,52 @@ def main() -> int:
                 debug_timing=bool(args.debug_timing),
                 drop_prob=0.9,
             )
+        elif str(args.batch) == "mod":
+            mod_factor = 1.5
+            if not bool(args.reuse_direct):
+                _run_campaign(
+                    scenario="direct",
+                    mitm_mode="delay",
+                    num_runs=int(args.num_runs),
+                    start_id=2001,
+                    run_timeout=float(args.run_timeout),
+                    base_seed=int(args.base_seed),
+                    debug_timing=bool(args.debug_timing),
+                )
+
+            _run_campaign(
+                scenario="mitm",
+                mitm_mode="mod",
+                num_runs=int(args.num_runs),
+                start_id=4101,
+                run_timeout=float(args.run_timeout),
+                base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
+                mod_prob=0.1,
+                mod_factor=mod_factor,
+            )
+            _run_campaign(
+                scenario="mitm",
+                mitm_mode="mod",
+                num_runs=int(args.num_runs),
+                start_id=4201,
+                run_timeout=float(args.run_timeout),
+                base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
+                mod_prob=0.5,
+                mod_factor=mod_factor,
+            )
+            _run_campaign(
+                scenario="mitm",
+                mitm_mode="mod",
+                num_runs=int(args.num_runs),
+                start_id=4301,
+                run_timeout=float(args.run_timeout),
+                base_seed=int(args.base_seed),
+                debug_timing=bool(args.debug_timing),
+                mod_prob=0.9,
+                mod_factor=mod_factor,
+            )
         else:
             # Direct
             _run_campaign(
@@ -277,7 +349,7 @@ def main() -> int:
                 num_runs=int(args.num_runs),
                 start_id=2001,
                 run_timeout=float(args.run_timeout),
-                base_seed=None,
+                base_seed=int(args.base_seed),
                 debug_timing=bool(args.debug_timing),
             )
 
@@ -324,7 +396,8 @@ def main() -> int:
     import plotter_comparator
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    plot_specs = _build_plot_specs_drop(args.latex) if str(args.batch) == "drop" else _build_plot_specs(args.latex)
+
+    plot_specs = _build_plot_specs_mod(args.latex) if str(args.batch) == "mod" else (_build_plot_specs_drop(args.latex) if str(args.batch) == "drop" else _build_plot_specs(args.latex))
 
     band_sel = str(args.band)
     bands = [band_sel] if band_sel in {"ci95", "sd"} else ["sd", "ci95"]

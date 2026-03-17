@@ -312,12 +312,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mitm-mode",
-        choices=["delay", "drop"],
+        choices=["delay", "drop", "mod"],
         default=os.environ.get("IEC104_MITM_MODE", "delay"),
         help=(
             "If --scenario mitm, how to simulate the MITM behavior. "
             "delay: add a delay to all commands. "
             "drop: randomly drop some commands with a given probability."
+            "mod: randomly modify some command values with a given probability and factor."
         )
     )
     parser.add_argument(
@@ -343,6 +344,18 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=float(_env_float("IEC104_MITM_DROP_PROB", 0.0)),
         help="For labeling only: drop probability used in drop mode.",
+    )
+    parser.add_argument(
+        "--mitm-mod-prob",
+        type=float,
+        default=float(_env_float("IEC104_MITM_MOD_PROB", 0.0)),
+        help="For labeling only: modification probability used in mod mode.",
+    )
+    parser.add_argument(
+        "--mitm-mod-factor",
+        type=float,
+        default=float(_env_float("IEC104_MITM_MOD_FACTOR", 1.0)),
+        help="For labeling only: modification factor used in mod mode (e.g., 0.5 = commands are halved).",
     )
     parser.add_argument(
         "--num-runs",
@@ -382,7 +395,11 @@ def _scenario_name(args: argparse.Namespace) -> str:
         else:
             delay_tag = f"d{_delay_tag(float(args.mitm_shed_delay))}"
         return f"case_iec104_mitm_delay_{delay_tag}_{shed_tag}"
-
+    if args.mitm_mode == "mod":
+        mod_tag = f"pmod{_prob_tag(float(args.mitm_mod_prob))}_f{_prob_tag(float(args.mitm_mod_factor))}"
+        return f"case_iec104_mitm_mod_{mod_tag}_{shed_tag}"
+    
+    print(f"[iec104-system] WARNING: unrecognized MITM mode '{args.mitm_mode}'; defaulting to generic drop tag", flush=True)
     drop_tag = f"pdrop{_prob_tag(float(args.mitm_drop_prob))}"
     return f"case_iec104_mitm_drop_{drop_tag}_{shed_tag}"
 

@@ -848,10 +848,11 @@ def plot_comparison(args: argparse.Namespace) -> None:
     scenario_ids = [str(s.scenario_id) for s in specs]
     has_delay = any("delay" in sid for sid in scenario_ids)
     has_drop = any("drop" in sid for sid in scenario_ids)
+    has_mod = any("mod" in sid for sid in scenario_ids)
 
     max_runs = int(getattr(args, "max_runs", 0) or 0)
     pcap_parser = str(getattr(args, "pcap_parser", "none") or "none").lower().strip()
-    want_pcap_plots = pcap_parser != "none"
+    want_pcap_plots = pcap_parser != "none" and (has_delay or has_drop or has_mod)
 
     # When generating pcap-derived plots, skip the 2D frequency comparison plot.
     want_freq_plot = not want_pcap_plots
@@ -1078,7 +1079,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
         # Draw last-command mean vertical lines and uncertainty spans after curves are plotted.
         last_cmd_handles: list[plt.Line2D] = []
-        if last_cmd_stats and not has_drop:
+        if last_cmd_stats and not (has_drop or has_mod):
             for (label, color, m, hw) in last_cmd_stats:
                 if m is None:
                     (h,) = ax.plot(
@@ -1111,38 +1112,6 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 )
                 last_cmd_handles.append(h)
 
-        # For drop batches, avoid plotting last-command time vertical lines.
-        if last_cmd_stats and has_drop:
-            # for (label, color, m, hw) in last_cmd_stats:
-            #     if m is None:
-            #         (h,) = ax.plot(
-            #             [],
-            #             [],
-            #             color=color,
-            #             linestyle="--",
-            #             linewidth=1.6,
-            #             label=f"Last set.: none received",
-            #         )
-            #         last_cmd_handles.append(h)
-            #         continue
-            #
-            #     if hw > 0:
-            #         ax.axvspan(m - hw, m + hw, color=color, alpha=0.12, linewidth=0, zorder=1)
-            #
-            #     band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
-            #     band_txt = f"(mean {band_txt})"
-            #     h = ax.axvline(
-            #         m,
-            #         color=color,
-            #         linestyle="--",
-            #         linewidth=1.6,
-            #         alpha=0.95,
-            #         zorder=5,
-            #         label=f"Last set. t={m:.3f}s {band_txt}",
-            #     )
-            #     last_cmd_handles.append(h)
-            pass
-
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Frequency [Hz]")
         ax.set_title(str(args.title))
@@ -1174,7 +1143,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
         handles.append(trip_handle)
         handles.extend(last_cmd_handles)
         
-        if not has_drop:
+        if not (has_drop or has_mod):
             ax.legend(
                 handles=handles,
                 labels=[h.get_label() for h in handles],
@@ -1185,8 +1154,8 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 framealpha=0.9,
                 handlelength=2.0,
                 handletextpad=0.6,
-                columnspacing=1.2,
-            )
+                columnspacing=1.2
+            ).set_zorder(20)
         else:
             ax.legend(
                 handles=handles,
@@ -1197,8 +1166,8 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 framealpha=0.9,
                 handlelength=2.0,
                 handletextpad=0.6,
-                columnspacing=1.2,
-            )
+                columnspacing=1.2
+            ).set_zorder(20)
 
         out_name = str(Path(out_name_base).with_suffix(".pdf"))
         out_path = PLOTS_DIR / out_name

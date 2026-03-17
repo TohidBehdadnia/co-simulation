@@ -77,6 +77,8 @@ def _proc_run_proxy(config: "IEC104MitmConfig", stop_flag, log_path: str) -> Non
                 shed_delay_min=proxy.config.shed_delay_min,
                 shed_delay_max=proxy.config.shed_delay_max,
                 command_drop_prob=proxy.config.command_drop_prob,
+                command_mod_prob=proxy.config.command_mod_prob,
+                command_mod_factor=proxy.config.command_mod_factor,
                 seed=proxy.config.seed,
                 log_messages=proxy.config.log_messages,
             )
@@ -214,6 +216,8 @@ class IEC104SystemConfig:
     mitm_shed_delay_min: float | None
     mitm_shed_delay_max: float | None
     mitm_drop_prob: float
+    mitm_mod_prob: float
+    mitm_mod_factor: float
 
 
 @dataclass
@@ -225,7 +229,7 @@ class IEC104ControllerConfig:
     tick_ms: int
     inter_command_sleep_ms: float
     debug_timing: bool
-
+    seed: int | None
 
 @dataclass
 class IEC104MitmConfig:
@@ -241,6 +245,8 @@ class IEC104MitmConfig:
     shed_delay_min: float | None
     shed_delay_max: float | None
     command_drop_prob: float
+    command_mod_prob: float
+    command_mod_factor: float
     seed: int | None
     log_messages: bool
 
@@ -272,6 +278,8 @@ class IEC104SystemComponent:
             mitm_shed_delay_min=self.config.mitm_shed_delay_min,
             mitm_shed_delay_max=self.config.mitm_shed_delay_max,
             mitm_drop_prob=float(self.config.mitm_drop_prob),
+            mitm_mod_prob=float(self.config.mitm_mod_prob),
+            mitm_mod_factor=float(self.config.mitm_mod_factor)
         )
         iec104_system.andes.config_logger(stream_level=20)
         iec104_system._run_once(args, int(run_id))
@@ -290,6 +298,7 @@ class IEC104ControllerComponent:
             tick_ms=self.config.tick_ms,
             inter_command_sleep_ms=self.config.inter_command_sleep_ms,
             debug_timing=bool(self.config.debug_timing),
+            seed=self.config.seed,
         )
         iec104_controller.run_controller_once(args)
 
@@ -336,6 +345,8 @@ class IEC104ScenarioOrchestrator:
                 mitm_shed_delay_min=self.args.proxy_shed_delay_min,
                 mitm_shed_delay_max=self.args.proxy_shed_delay_max,
                 mitm_drop_prob=float(self.args.proxy_command_drop_prob),
+                mitm_mod_prob=float(self.args.proxy_command_mod_prob) if hasattr(self.args, "proxy_command_mod_prob") else 0.0,
+                mitm_mod_factor=float(self.args.proxy_command_mod_factor) if hasattr(self.args, "proxy_command_mod_factor") else 1.0,
             )
         )
 
@@ -349,6 +360,7 @@ class IEC104ScenarioOrchestrator:
                 tick_ms=int(self.args.tick_ms),
                 inter_command_sleep_ms=float(self.args.inter_command_sleep_ms),
                 debug_timing=bool(self.args.debug_timing),
+                seed=self.args.proxy_seed,
             )
         )
 
@@ -367,6 +379,8 @@ class IEC104ScenarioOrchestrator:
                 shed_delay_min=self.args.proxy_shed_delay_min,
                 shed_delay_max=self.args.proxy_shed_delay_max,
                 command_drop_prob=float(self.args.proxy_command_drop_prob),
+                command_mod_prob=float(self.args.proxy_command_mod_prob) if hasattr(self.args, "proxy_command_mod_prob") else 0.0,
+                command_mod_factor=float(self.args.proxy_command_mod_factor) if hasattr(self.args, "proxy_command_mod_factor") else 1.0,
                 seed=self.args.proxy_seed,
                 log_messages=bool(self.args.log_messages),
             )
@@ -402,6 +416,9 @@ class IEC104ScenarioOrchestrator:
                 # the injected random delays/drops would be identical across runs.
                 # Derive a per-run seed so runs differ but the overall sequence is repeatable.
                 proxy_cfg.seed = int(base_seed) + int(run_offset)
+            if controller_cfg is not None and base_seed is not None:
+                # Controller also uses randomization for bus shuffling, so apply the same per-run seed.
+                controller_cfg.seed = int(base_seed) + int(run_offset)
 
             system_log = str(run_log_dir / "system.log")
             controller_log = str(run_log_dir / "controller.log")
@@ -548,6 +565,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--proxy-shed-delay-min", type=float, default=None)
     parser.add_argument("--proxy-shed-delay-max", type=float, default=None)
     parser.add_argument("--proxy-command-drop-prob", type=float, default=0.0)
+    parser.add_argument("--proxy-command-mod-prob", type=float, default=0.0)
+    parser.add_argument("--proxy-command-mod-factor", type=float, default=1.0)
     parser.add_argument("--proxy-seed", type=int, default=None)
 
     parser.add_argument("--listen-host", default="127.0.0.1")

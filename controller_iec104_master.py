@@ -17,7 +17,7 @@ import argparse
 import os
 import threading
 import time
-
+import numpy as np
 import c104
 
 DEFAULT_DIRECT_PORT = 2404
@@ -81,6 +81,12 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=bool(int(os.environ.get("IEC104_DEBUG_TIMING", "0"))),
         help="Print controller timing diagnostics (perf_counter-based).",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=None if os.environ.get("IEC104_SEED") is None else int(os.environ.get("IEC104_SEED")),
+        help="Optional random seed for reproducibility (e.g., to get the same bus shuffling across runs). If not set, the shuffling will be different across runs."
     )
     return ap.parse_args()
 
@@ -266,6 +272,7 @@ def _run_controller_once_inner(args: argparse.Namespace, *, open_muted_stuck_s: 
     }
 
     def send_commands(lost_p: float, ppf_by_bus: dict[int, float]) -> None:
+        np.random.seed(args.seed) # Set random seed for reproducibility of bus shuffling.
         nonlocal sent
         shed_by_bus = compute_shed_by_bus(lost_p, ppf_by_bus)
 
@@ -277,6 +284,8 @@ def _run_controller_once_inner(args: argparse.Namespace, *, open_muted_stuck_s: 
 
         t0 = time.perf_counter()
         all_ok = True
+        # Shuffle expected busses to modify the order of commands accross runs
+        np.random.shuffle(expected_buses)
         for bus in expected_buses:
             cmd_points[bus].value = float(shed_by_bus[bus])
             ok = cmd_points[bus].transmit(c104.Cot.ACTIVATION)

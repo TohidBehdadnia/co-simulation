@@ -19,6 +19,7 @@ Run example (3 terminals):
 - Outstation:  .venv/bin/python system_RT_iec104.py
 - MITM (delay): .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --shed-delay 0.20
 - MITM (drop): .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --drop-command-prob 0.5 --seed 98
+- MITM (mod):  .venv/bin/python mitm_proxy_iec104_delay.py --listen-port 2405 --upstream-port 2404 --mod-command-prob 0.5 --mod-command-factor 0.5 --seed 98
 - Controller: IEC104_PORT=2405 .venv/bin/python controller_iec104_master.py
 """
 
@@ -71,6 +72,18 @@ def _parse_args() -> argparse.Namespace:
         help="probability [0.0-1.0] of randomly dropping a shed command packet instead of forwarding",
     )
     ap.add_argument(
+        "--command-mod-prob",
+        type=float,        
+        default=0.0,
+        help="probability [0.0-1.0] of randomly modifying a shed command packet instead of forwarding",
+    )
+    ap.add_argument(
+        "--command-mod-factor",
+        type=float,
+        default=1.0,
+        help="modification factor applied to the command value when --command-mod-prob is set (e.g. 0.5 to halve the value)",
+    )
+    ap.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -91,7 +104,8 @@ def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None 
 
     use_random_per_packet = (args.shed_delay_min is not None) and (args.shed_delay_max is not None)
     drop_packet_randomly = (args.command_drop_prob is not None) and (0.0 < args.command_drop_prob <= 1.0)
-    rng = random.Random(args.seed) if use_random_per_packet or drop_packet_randomly else None
+    mod_packet_randomly = (args.command_mod_prob is not None) and (0.0 < args.command_mod_prob <= 1.0)
+    rng = random.Random(args.seed) if use_random_per_packet or drop_packet_randomly or mod_packet_randomly else None
 
     t0 = time.monotonic()
 
@@ -496,6 +510,19 @@ def run_mitm_proxy(args: argparse.Namespace, stop_event: threading.Event | None 
                     log(f"DROPPED shed command ioa={ioa} value={float(value)}")
                 else:
                     log(f"FORWARDING shed command ioa={ioa} value={float(value)} (not dropped)")
+                    with cmd_lock:
+                        delay_s = _sample_shed_delay()
+                    _forward_one_shed(int(ioa), float(value), float(delay_s))
+            elif mod_packet_randomly:
+                # Randomly modify the command value instead of forwarding as-is.
+                if rng.random() < float(args.command_mod_prob):
+                    modified_value = float(value) * float(args.command_mod_factor)
+                    log(f"MODIFIED shed command ioa={ioa} original_value={float(value)} modified_value={modified_value}")
+                    with cmd_lock:
+                        delay_s = _sample_shed_delay()
+                    _forward_one_shed(int(ioa), modified_value, float(delay_s))
+                else:
+                    log(f"FORWARDING shed command ioa={ioa} value={float(value)} (not modified)")
                     with cmd_lock:
                         delay_s = _sample_shed_delay()
                     _forward_one_shed(int(ioa), float(value), float(delay_s))
