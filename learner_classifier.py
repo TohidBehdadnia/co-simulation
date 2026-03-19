@@ -69,6 +69,7 @@ classifiers = {
 }
 
 if __name__ == "__main__":
+    # Time windows are defined as (start, end) in seconds relative to the trip event
     time_window_widths = [(0,1), (1,2), (2,3), (3,4)]
 
     maitain_it_features = [False, True]
@@ -87,19 +88,17 @@ if __name__ == "__main__":
             end = w[1]
             # Just consider the samples belonging to the training window
             data_window = data_working[(data_working["t-from-trip"] >= start) & (data_working["t-from-trip"] < end)]
-            print(f"Training classifiers on data from the first {w} seconds of the simulation...")
-            # Split the data into features and target variable
+            print(f"Training classifiers on data between {start+1} and {end+1} seconds...")
             X = data_window.drop("class", axis=1)
             y = data_window["class"] 
 
             for clfName, clf in classifiers.items():
-                print(f"Training and evaluating {clfName} on data from the first {w} seconds of the simulation...")
+                print(f"Training and evaluating {clfName} on data between {start+1} and {end+1} seconds...")
                 for fold, (X_train, y_train, X_test, y_test) in enumerate(k_fold_cv(X, y, k=5, random_state=42, splitColumn="run-id")):
                     print(f"Fold {fold + 1}")
                     clf.fit(X_train, y_train)
                     y_pred = clf.predict(X_test)
                     
-                    # Evaluate the model
                     report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
                     # The time window is reported in absolute time and not relative to the trip event (for consistency with the previous plots)
                     scores = pd.concat([scores, pd.DataFrame({
@@ -113,7 +112,6 @@ if __name__ == "__main__":
                     }, index=[0])], ignore_index=True)
     scores.to_csv(resultsFolder / "classifier_scores.csv", index=False)
 
-    # %%
     sns.set_theme()
 
     if latex:
@@ -188,7 +186,7 @@ if __name__ == "__main__":
                 error_kw={"ecolor": ".2", "elinewidth": 0.9},
             )
 
-    ax.set_title("Classifier Performance With vs Without IT Features", pad=14)
+    #ax.set_title("Classifier Performance With vs Without IT Features", pad=14)
     ax.set_xlabel("Time Window")
     if not latex: ax.set_ylabel("Macro F1-Score (± std)") 
     else: ax.set_ylabel("Macro F1-Score $(\pm std$)")  
@@ -223,3 +221,23 @@ if __name__ == "__main__":
     # Reserve room on the right for legend
     plt.tight_layout(rect=[0, 0, 0.82, 1])
     plt.savefig(plotsFolder / "classifier_comparison.pdf", bbox_inches="tight")
+
+    # Store the average F1 score and std for each classifier and time window in a CSV file for later analysis
+    summary_data = []
+    for clf in classifiers_list:
+        clf_data = scores[scores["Classifier"] == clf]
+        summary = (
+            clf_data.groupby(["Time Window", "Condition"])["F1-Score"]
+            .agg(["mean", "std"])
+            .reset_index()
+        )
+        for _, row in summary.iterrows():
+            summary_data.append({
+                "Classifier": clf,
+                "Time Window": row["Time Window"],
+                "Condition": row["Condition"],
+                "Mean F1-Score": row["mean"],
+                "Std F1-Score": row["std"]
+            })
+    summary_df = pd.DataFrame(summary_data)
+    summary_df.to_csv(resultsFolder / "classifier_summary.csv", index=False)

@@ -26,6 +26,9 @@ def _apply_latex_rcparams() -> None:
         }
     )
 
+import seaborn as sns
+
+sns.set_theme()
 
 if _WANT_LATEX:
     try:
@@ -42,16 +45,6 @@ if _WANT_LATEX:
 
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
-
-sns.set_theme()
-
-# Seaborn theme setup can override some font-related rcParams; re-apply LaTeX config.
-if _WANT_LATEX:
-    try:
-        _apply_latex_rcparams()
-    except Exception:
-        pass
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
