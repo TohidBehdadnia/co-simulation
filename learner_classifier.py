@@ -13,6 +13,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import time
+import argparse
+import sys
+import ast
+from tqdm import tqdm
 
 np.random.seed(42)
 
@@ -20,7 +24,23 @@ dataFolder = Path("./data").absolute()
 resultsFolder = Path("./results").absolute()
 plotsFolder = Path("./plots").absolute()
 data = pd.read_csv(dataFolder / "final_data.csv")
-latex = True  # Set to True to use LaTeX rendering for text in plots
+
+classifiers = {
+    "MNB": MultinomialNB(),
+    "MLP": MLPClassifier(max_iter=300, random_state=42, n_iter_no_change=10),
+    "KNN": KNeighborsClassifier(n_neighbors=20, n_jobs=-1),
+    "DT": DecisionTreeClassifier(max_depth=10, random_state=42),
+    "RFC": RandomForestClassifier(max_depth=10, random_state=42, n_jobs=-1)
+}
+
+bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}"
+
+def delete_last_line():
+    "Deletes the last line in the STDOUT"
+    # cursor up one line
+    sys.stdout.write('\x1b[1A')
+    # delete last line
+    sys.stdout.write('\x1b[2K')
 
 def k_fold_cv(X, y, k=5, random_state=42, splitColumn=None):
     if splitColumn is not None and splitColumn in X.columns:
@@ -60,60 +80,97 @@ def _apply_latex_rcparams() -> None:
         }
     )
 
-classifiers = {
-    "MNB": MultinomialNB(),
-    "MLP": MLPClassifier(max_iter=300, random_state=42, n_iter_no_change=10),
-    "KNN": KNeighborsClassifier(n_neighbors=20, n_jobs=-1),
-    "DT": DecisionTreeClassifier(max_depth=10, random_state=42),
-    "RFC": RandomForestClassifier(max_depth=10, random_state=42, n_jobs=-1)
-}
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Script for training and evaluating ML models on the curated data")
+    parser.add_argument(
+        "--only-plot",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Chose to generate the plot based on the stored results")
+    
+    parser.add_argument(
+        "--latex",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable LaTeX text rendering in plots (PGF backend when possible). "
+            "Requires a working LaTeX installation (e.g. pdflatex)."
+        )
+    )
+    
+    return parser.parse_args()
 
-if __name__ == "__main__":
+def _to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+def _parse_confusion_matrix(value) -> np.ndarray:
+    if isinstance(value, str):
+        value = ast.literal_eval(value)
+    return np.asarray(value, dtype=int)
+
+def _parse_label_order(value) -> list[str]:
+    if isinstance(value, str):
+        value = ast.literal_eval(value)
+    return [str(v) for v in value]
+
+def main(args: argparse.Namespace):
     # Time windows are defined as (start, end) in seconds relative to the trip event
     time_window_widths = [(0,1), (1,2), (2,3), (3,4)]
 
     maitain_it_features = [False, True]
 
-    scores = pd.DataFrame(columns=["Classifier", "Time Window", "Fold", "Precision", "Recall", "F1-Score", "Maintain IT Features"])
+    if not bool(args.only_plot):
+        score_rows = []
 
-    for maintain_it in maitain_it_features:
-        if not maintain_it:
-            print("Training classifiers without IT features...")
-            data_working = data.drop(columns=["setpoint-count", "average-delay"])
-        else:
-            print("Training classifiers with IT features...")
-            data_working = data.copy()
-        for w in time_window_widths:
-            start = w[0]
-            end = w[1]
-            # Just consider the samples belonging to the training window
-            data_window = data_working[(data_working["t-from-trip"] >= start) & (data_working["t-from-trip"] < end)]
-            print(f"Training classifiers on data between {start+1} and {end+1} seconds...")
-            X = data_window.drop("class", axis=1)
-            y = data_window["class"] 
+        for maintain_it in tqdm(maitain_it_features, desc="Dataset conditions", total=len(maitain_it_features), bar_format=bar_format):
+            if not maintain_it:
+                data_working = data.drop(columns=["setpoint-count", "average-delay"])
+            else:
+                data_working = data.copy()
+            for w in tqdm(time_window_widths, desc="Time windows", total=len(time_window_widths), bar_format=bar_format, leave=False):
+                start = w[0]
+                end = w[1]
+                # Just consider the samples belonging to the training window
+                data_window = data_working[(data_working["t-from-trip"] >= start) & (data_working["t-from-trip"] < end)]
+                X = data_window.drop("class", axis=1)
+                y = data_window["class"] 
 
-            for clfName, clf in classifiers.items():
-                print(f"Training and evaluating {clfName} on data between {start+1} and {end+1} seconds...")
-                for fold, (X_train, y_train, X_test, y_test) in enumerate(k_fold_cv(X, y, k=5, random_state=42, splitColumn="run-id")):
-                    print(f"Fold {fold + 1}")
-                    clf.fit(X_train, y_train)
-                    y_pred = clf.predict(X_test)
-                    
-                    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-                    # The time window is reported in absolute time and not relative to the trip event (for consistency with the previous plots)
-                    scores = pd.concat([scores, pd.DataFrame({
-                        "Classifier": clfName,
-                        "Time Window": f"{start+1}-{end+1} seconds",
-                        "Fold": fold + 1,
-                        "Precision": report["weighted avg"]["precision"],
-                        "Recall": report["weighted avg"]["recall"],
-                        "F1-Score": report["weighted avg"]["f1-score"],
-                        "Maintain IT Features": maintain_it
-                    }, index=[0])], ignore_index=True)
-    scores.to_csv(resultsFolder / "classifier_scores.csv", index=False)
+                for clfName, clf in tqdm(classifiers.items(), desc="Classifiers", total=len(classifiers), bar_format=bar_format, leave=False):
+                    k = 5
+                    for fold, (X_train, y_train, X_test, y_test) in tqdm(enumerate(k_fold_cv(X, y, k=k, random_state=42, splitColumn="run-id")), total=k, desc="Fold", bar_format=bar_format, leave=False):
+                        clf.fit(X_train, y_train)
+                        y_pred = clf.predict(X_test)
+                        
+                        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+                        labels = y.unique()
+                        # The time window is reported in absolute time and not relative to the trip event (for consistency with the previous plots)
+                        score_rows.append({
+                            "Classifier": clfName,
+                            "Time Window": f"{start+1}-{end+1} seconds",
+                            "Fold": fold + 1,
+                            "Precision": report["weighted avg"]["precision"],
+                            "Recall": report["weighted avg"]["recall"],
+                            "F1-Score": report["weighted avg"]["f1-score"],
+                            "Confusion Matrix Order": labels.tolist(),
+                            "Confusion Matrix": confusion_matrix(y_test, y_pred, labels=labels).tolist(),
+                            "Maintain Cyber-Layer Features": maintain_it
+                        })
+        scores = pd.DataFrame(score_rows)
+        scores.to_csv(resultsFolder / "classifier_scores.csv", index=False)
+    else:
+        scores = pd.read_csv(resultsFolder / "classifier_scores.csv")
+
+    scores["Maintain Cyber-Layer Features"] = scores["Maintain Cyber-Layer Features"].apply(_to_bool)
+    scores["Confusion Matrix"] = scores["Confusion Matrix"].apply(_parse_confusion_matrix)
+    scores["Confusion Matrix Order"] = scores["Confusion Matrix Order"].apply(_parse_label_order)
 
     sns.set_theme()
 
+    latex = bool(args.latex)
     if latex:
         try:
             plt.use("pgf")
@@ -124,8 +181,8 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    scores["Condition"] = scores["Maintain IT Features"].apply(
-        lambda x: "With IT Features" if x else "Without IT Features"
+    scores["Condition"] = scores["Maintain Cyber-Layer Features"].apply(
+        lambda x: "With Cyber-Layer Features" if x else "Without Cyber-Layer Features"
     )
 
     # Keep time windows in chronological order (e.g., 1-2, 2-3, ...)
@@ -138,14 +195,14 @@ if __name__ == "__main__":
     classifiers_present = set(scores["Classifier"].unique())
     classifiers_list = [clf for clf in desired_order if clf in classifiers_present]
 
-    conditions = ["Without IT Features", "With IT Features"]
+    conditions = ["Without Cyber-Layer Features", "With Cyber-Layer Features"]
 
     # Visual mapping: same color per classifier, different hatches per condition
     colors_map = {
         clf: color
         for clf, color in zip(classifiers_list, sns.color_palette(n_colors=len(classifiers_list)))
     }
-    hatches = {"Without IT Features": "", "With IT Features": "//"}
+    hatches = {"Without Cyber-Layer Features": "", "With Cyber-Layer Features": "//"}
 
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=False)
 
@@ -186,7 +243,7 @@ if __name__ == "__main__":
                 error_kw={"ecolor": ".2", "elinewidth": 0.9},
             )
 
-    #ax.set_title("Classifier Performance With vs Without IT Features", pad=14)
+    #ax.set_title("Classifier Performance With vs Without Cyber-Layer Features", pad=14)
     ax.set_xlabel("Time Window")
     if not latex: ax.set_ylabel("Macro F1-Score (± std)") 
     else: ax.set_ylabel("Macro F1-Score $(\pm std$)")  
@@ -206,7 +263,16 @@ if __name__ == "__main__":
         Patch(facecolor="none", edgecolor="none", label="Dataset"),
     ]
     legend_handles += [
-        Patch(facecolor="white", edgecolor=".2", hatch=hatches[cond], label=cond)
+        Patch(
+            facecolor="white",
+            edgecolor=".2",
+            hatch=hatches[cond],
+            label=(
+                "Without\nCyber-Layer Features"
+                if cond == "Without Cyber-Layer Features"
+                else "With\nCyber-Layer Features"
+            ),
+        )
         for cond in conditions
     ]
 
@@ -241,3 +307,114 @@ if __name__ == "__main__":
             })
     summary_df = pd.DataFrame(summary_data)
     summary_df.to_csv(resultsFolder / "classifier_summary.csv", index=False)
+
+    # Build one confusion-matrix grid for the 1-2 seconds window:
+    # columns are classifiers and rows are conditions
+    # (without cyber-layer features on top, with cyber-layer features below).
+    preferred_order = ["direct", "delay", "drop", "mod"]
+    available_labels = data["class"].dropna().astype(str).unique().tolist()
+    class_labels = [label for label in preferred_order if label in available_labels]
+    class_labels += [label for label in available_labels if label not in class_labels]
+    n_labels = len(class_labels)
+
+    target_time_window = "1-2 seconds"
+    if target_time_window not in time_windows and len(time_windows) > 0:
+        target_time_window = time_windows[0]
+
+    aggregated_cm = {}
+    for clf in classifiers_list:
+        clf_data = scores[
+            (scores["Classifier"] == clf)
+            & (scores["Time Window"] == target_time_window)
+        ]
+        cm_with = np.zeros((n_labels, n_labels), dtype=int)
+        cm_without = np.zeros((n_labels, n_labels), dtype=int)
+
+        for _, row in clf_data.iterrows():
+            row_labels = row["Confusion Matrix Order"]
+            cm = np.asarray(row["Confusion Matrix"], dtype=int)
+
+            cm_df = pd.DataFrame(cm, index=row_labels, columns=row_labels)
+            cm_aligned = cm_df.reindex(index=class_labels, columns=class_labels, fill_value=0).to_numpy(dtype=int)
+
+            if row["Condition"] == "With Cyber-Layer Features":
+                cm_with += cm_aligned
+            else:
+                cm_without += cm_aligned
+
+        aggregated_cm[clf] = {
+            "Without Cyber-Layer Features": cm_without,
+            "With Cyber-Layer Features": cm_with,
+        }
+
+    n_rows = 2
+    n_cols = len(classifiers_list)
+    fig, axes = plt.subplots(
+        nrows=n_rows,
+        ncols=n_cols,
+        figsize=(3.2 * n_cols, 2.9 * n_rows),
+        squeeze=False,
+        constrained_layout=False,
+    )
+    cbar_ax = fig.add_axes([0.51, 0.11, 0.010, 0.4])
+
+    condition_layout = ["Without Cyber-Layer Features", "With Cyber-Layer Features"]
+    normalization_mode = "row"
+    for row_idx, condition in enumerate(condition_layout):
+        for col_idx, clf in enumerate(classifiers_list):
+            ax = axes[row_idx][col_idx]
+            cm = aggregated_cm[clf][condition].astype(float)
+
+            if normalization_mode == "row":
+                norm_den = cm.sum(axis=1, keepdims=True)
+            else:
+                norm_den = cm.sum(axis=0, keepdims=True)
+            norm_den = np.where(norm_den == 0, 1.0, norm_den)
+            cm_normalized = cm / norm_den
+            cm_labels = np.vectorize(lambda value: f"{value:.2f}".lstrip("0"))(cm_normalized)
+
+            show_x_ticklabels = row_idx == n_rows - 1
+            show_y_ticklabels = col_idx == 0
+            sns.heatmap(
+                cm_normalized,
+                annot=cm_labels,
+                fmt="",
+                cmap="Blues",
+                cbar=(row_idx == 0 and col_idx == n_cols - 1),
+                cbar_ax=cbar_ax,
+                square=True,
+                linewidths=0.3,
+                linecolor="white",
+                vmin=0.0,
+                vmax=1.0,
+                xticklabels=class_labels if show_x_ticklabels else False,
+                yticklabels=class_labels if show_y_ticklabels else False,
+                ax=ax,
+            )
+
+            if row_idx == 0:
+                ax.set_title(clf)
+
+            if col_idx == 0:
+                condition_short = "Without Cyber-Layer\nFeatures\n" if condition == "Without Cyber-Layer Features" else "With Cyber-Layer\nFeatures\n"
+                ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
+            else:
+                ax.set_ylabel("")
+
+            if row_idx == n_rows - 1:
+                ax.set_xlabel("Predicted Label", fontsize=10)
+            else:
+                ax.set_xlabel("")
+
+            if show_x_ticklabels:
+                ax.set_xticklabels(class_labels, rotation=35, ha="right", fontsize=9)
+            if show_y_ticklabels:
+                ax.set_yticklabels(class_labels, rotation=35, fontsize=9)
+
+    #fig.suptitle(f"Aggregated Confusion Matrices - {target_time_window}", y=0.995)
+    fig.subplots_adjust(left=0.06, right=0.50, bottom=0.10, top=0.52, wspace=0.25, hspace=0.22)
+    plt.savefig(plotsFolder / "confusion_matrices_by_model_1_2s.pdf", bbox_inches="tight")
+
+if __name__ == "__main__":
+    args = _parse_args()
+    main(args)

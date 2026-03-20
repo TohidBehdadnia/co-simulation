@@ -6,4 +6,4 @@ matplotlib
 seaborn
 dpkt
 scikit-learn
-xgboost
+tqdm
