@@ -102,11 +102,15 @@ def main(args: argparse.Namespace):
             label=f"Dataset median granularity ({median_granularity_ms:.3f} ms)",
         )
 
+
         # Add average/std labels slightly above the error bars.
         annotation_offset_ms = 0.02 * (
             timesResults[y_column] + timesResults["Standard Deviation (ms)"]
         ).max()
         for patch, (_, row) in zip(ax.patches, timesResults.iterrows()):
+            # Compute also how many inter-times are below the average value (convert iter_times to milliseconds)
+            percLost = (len([t for t in (inter_times * 1000) if t < row[y_column]]) / len(inter_times)) * 100
+
             x = patch.get_x() + patch.get_width() / 2
             y = row[y_column] + row["Standard Deviation (ms)"] + annotation_offset_ms
             ax.text(
@@ -116,6 +120,19 @@ def main(args: argparse.Namespace):
                 ha="center",
                 va="bottom",
                 rotation=0,
+                fontsize=8,
+            )
+
+            y2 = row[y_column] + row["Standard Deviation (ms)"] + (annotation_offset_ms * 6)
+            ax.text(
+                x,
+                y2,
+                f"{percLost:.2f}%\nof queries lost" if not args.latex else f"\\textbf{{$\\sim$ {percLost:.2f}\\%\\\\of queries lost}}",
+                ha="center",
+                va="bottom",
+                rotation=0,
+                color="red",
+                fontweight="bold",
                 fontsize=8,
             )
 
