@@ -4,6 +4,8 @@
 Runs:
 - Direct (per-command)
 - MITM delay with ranges: 150–350ms, 400–600ms, 650–850ms
+- MITM drop with probabilities: 0.1, 0.5, 0.9
+- MITM modification with probabilities: 0.1, 0.5, 0.9 (modification factor 1.5)
 
 Then generates a comparison plot (mean ±95% CI by default).
 """

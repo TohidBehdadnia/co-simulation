@@ -6,7 +6,7 @@ from tqdm import tqdm
 def find_files(folder: Path, extension: str) -> list[Path]:
     return [f for f in folder.iterdir() if f.is_file() and f.suffix == extension]
 
-def convertAndDownsample(fileData: np.lib.npyio.NpzFile, delay: float) -> pd.DataFrame:
+def convert(fileData: np.lib.npyio.NpzFile, delay: float) -> pd.DataFrame:
     tripTime = 1 # The trip event happened at 1 second
     # keys ['t', 'freq', 'measured_delay', 'last_cmd_time', 'buses', 'per_bus_delay']
     t = fileData["t"] - tripTime
@@ -29,20 +29,13 @@ def convertAndDownsample(fileData: np.lib.npyio.NpzFile, delay: float) -> pd.Dat
     valid_100 = idx_100 >= 0
     freq_lag_100ms[valid_100] = freq[idx_100[valid_100]]
 
-    # Downsample the data by selecting only the samples that are at least `delay` seconds apart
-    downsampledIndices = [0]  # Always include the first sample
-    lastTime = t[0]
-    for i in range(1, len(t)):
-        if t[i] - lastTime >= delay:
-            downsampledIndices.append(i)
-            lastTime = t[i]
     return pd.DataFrame({
-        "t-from-trip": t[downsampledIndices],
-        "freq": freq[downsampledIndices],
-        "freq-lag-50ms": freq_lag_50ms[downsampledIndices],
-        "freq-lag-100ms": freq_lag_100ms[downsampledIndices],
-        "setpoint-count": setpoint_count[downsampledIndices],
-        "average-delay": average_delay[downsampledIndices]
+        "t-from-trip": t,
+        "freq": freq,
+        "freq-lag-50ms": freq_lag_50ms,
+        "freq-lag-100ms": freq_lag_100ms,
+        "setpoint-count": setpoint_count,
+        "average-delay": average_delay
     })
 
 
@@ -79,7 +72,7 @@ def main():
     for c, dataList in tqdm(classToData.items(), desc="Processing data for all classes", total=len(classToData), bar_format=bar_format):
         for data in tqdm(dataList, desc=f"Processing runs for class '{c}'", leave=False, total=len(dataList), bar_format=bar_format):
             runId += 1
-            dataDf = convertAndDownsample(data, delay=0.0001)
+            dataDf = convert(data, delay=0.0001)
             dataDf["class"] = c
             dataDf["run-id"] = runId
             # Remove the rows where t-from-trip is negative (before the trip event)

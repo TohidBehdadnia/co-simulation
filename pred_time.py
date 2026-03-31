@@ -58,7 +58,9 @@ def main(args: argparse.Namespace):
         # Testing classification response speed on the whole dataset
         X_train, X_test, y_train, y_test = train_test_split(data.drop(columns=["class"]), data["class"], test_size=0.2, random_state=42, splitColumn="run-id") 
         times_rows = []
-        for clfName, clf in tqdm(classifiers.items(), desc=f"Training {clfName} on the training set", total=len(classifiers), bar_format=bar_format):
+        i = 0
+        for clfName, clf in tqdm(classifiers.items(), desc=f"Training {list(classifiers.keys())[i]} on the training set", total=len(classifiers), bar_format=bar_format):
+            i += 1
             clf.fit(X_train, y_train)
             # Perform the classification one by one to test the response speed of the classifier on the whole dataset (instead of using batch prediction) and print the time taken for each prediction.
             times = []
@@ -81,10 +83,24 @@ def main(args: argparse.Namespace):
         median_time = np.median(inter_times)
         avg_time = np.mean(inter_times)
         print(f"Time granularity distribution of the full dataset: min={min_time:.6f}s, max={max_time:.6f}s, median={median_time:.6f}s, average={avg_time:.6f}s")
+        
+        sns.set_theme()
+        if args.latex:
+            _apply_latex_rcparams()
+
+        ax = plt.gca()
+        sns.histplot(inter_times * 1000, bins=50, edgecolor="black", ax=ax)
+        ax.set_yscale('log')
+        ax.set_xlabel("Inter-query time granularity (ms)")
+        ax.set_ylabel("Frequency (log scale)")
+
+        plt.savefig(plotsFolder / "time_granularity_distribution.pdf", bbox_inches="tight")
+        plt.close()
 
         sns.set_theme()
         if args.latex:
             _apply_latex_rcparams()
+
         timesResults = pd.read_csv(resultsFolder / "classifier_prediction_times.csv")
         y_column = "Average Prediction Time (ms)"
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -99,7 +115,7 @@ def main(args: argparse.Namespace):
             color="red",
             linestyle="--",
             linewidth=1.6,
-            label=f"Dataset median granularity ({median_granularity_ms:.3f} ms)",
+            label=f"Inter-query median time granularity ({median_granularity_ms:.3f} ms)",
         )
 
 
