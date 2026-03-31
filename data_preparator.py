@@ -43,7 +43,7 @@ bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}"
 dataFolder = Path("./data").absolute()
 resultsFolder = Path("./results").absolute()
 classToFolders = {
-    "direct": ["case_iec104_direct_percmd"],
+    "normal": ["case_iec104_direct_percmd"],
     "delay": ["case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd"],
     "drop": ["case_iec104_mitm_drop_pdrop0p1_percmd", "case_iec104_mitm_drop_pdrop0p5_percmd", "case_iec104_mitm_drop_pdrop0p9_percmd"],
     "mod": ["case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "case_iec104_mitm_mod_pmod0p9_f1p5_percmd"]

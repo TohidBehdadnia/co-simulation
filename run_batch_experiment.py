@@ -2,7 +2,7 @@
 """Batch runner for the IEC-104 scenarios + aggregated comparison plot(s).
 
 Runs:
-- Direct (per-command)
+- Normal (per-command)
 - MITM delay with ranges: 150–350ms, 400–600ms, 650–850ms
 - MITM drop with probabilities: 0.1, 0.5, 0.9
 - MITM modification with probabilities: 0.1, 0.5, 0.9 (modification factor 1.5)
@@ -158,14 +158,14 @@ def _run_campaign(
 def _build_plot_specs(latexEnabled: bool = False) -> list[str]:
     if not latexEnabled:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay 150–350ms"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay 400–600ms"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay 650–850ms"},
         ]
     else:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay $150–350\\mathrm{{ms}}$"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay $400–600\\mathrm{{ms}}$"},
             {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay $650–850\\mathrm{{ms}}$"},
@@ -175,14 +175,14 @@ def _build_plot_specs(latexEnabled: bool = False) -> list[str]:
 def _build_plot_specs_drop(latexEnabled: bool = False) -> list[dict]:
     if not latexEnabled:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop p=0.1"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop p=0.5"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop p=0.9"},
         ]
     else:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop $p=0.1$"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop $p=0.5$"},
             {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop $p=0.9$"},
@@ -191,14 +191,14 @@ def _build_plot_specs_drop(latexEnabled: bool = False) -> list[dict]:
 def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
     if not latexEnabled:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. p=0.1 f=1.5"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. p=0.5 f=1.5"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. p=0.9 f=1.5"},
         ]
     else:
         return [
-            {"scenario_id": "case_iec104_direct_percmd", "label": "Direct"},
+            {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. $p=0.1$ $f=1.5$"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. $p=0.5$ $f=1.5$"},
             {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. $p=0.9$ $f=1.5$"},
@@ -366,7 +366,7 @@ def main() -> int:
                 mod_factor=mod_factor,
             )
         else:
-            # Direct
+            # Normal
             _run_campaign(
                 scenario="direct",
                 mitm_mode="delay",

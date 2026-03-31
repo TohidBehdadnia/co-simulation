@@ -311,7 +311,7 @@ def main(args: argparse.Namespace):
     # Build one confusion-matrix grid for the 1-2 seconds window:
     # columns are classifiers and rows are conditions
     # (without cyber-layer features on top, with cyber-layer features below).
-    preferred_order = ["direct", "delay", "drop", "mod"]
+    preferred_order = ["normal", "delay", "drop", "mod"]
     available_labels = data["class"].dropna().astype(str).unique().tolist()
     class_labels = [label for label in preferred_order if label in available_labels]
     class_labels += [label for label in available_labels if label not in class_labels]

@@ -525,7 +525,8 @@ def _maybe_generate_pcap_plots(
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
         ax.set_ylabel("N. Setpoint commands received by server")
-        ax.set_title(str(title))
+        if title is not None:
+            ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.set_size_inches(6, 4, forward=True)
@@ -573,12 +574,13 @@ def _maybe_generate_pcap_plots(
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
-        ax.set_ylabel("Setpoint commands arrival time [s]")
+        ax.set_ylabel("Setpoint commands arrival time (s)")
 
         from matplotlib.ticker import MultipleLocator
 
         ax.yaxis.set_major_locator(MultipleLocator(0.1))
-        ax.set_title(str(title))
+        if title is not None:
+            ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.set_size_inches(6, 4, forward=True)
@@ -591,7 +593,7 @@ def _maybe_generate_pcap_plots(
         _save_rel_arrival_boxplot(
             data=rel_arrival_delay_group,
             out_path=PLOTS_DIR / f"pcap_setpoint_arrival_rel_to_meas_delay.pdf",
-            title="Setpoint arrival times relative to trip notify (per scenario)",
+            title=None,#"Setpoint arrival times relative to trip notify (per scenario)",
             order=order,
         )
     if has_drop_strategies and counts_drop_group:
@@ -599,7 +601,7 @@ def _maybe_generate_pcap_plots(
         _save_count_boxplot(
             data=counts_drop_group,
             out_path=PLOTS_DIR / f"pcap_setpoint_count_to_server_drop.pdf",
-            title="N. Setpoint commands to server (per scenario)",
+            title=None,#"N. Setpoint commands to server (per scenario)",
             order=order,
         )
 
@@ -1105,9 +1107,18 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 )
                 last_cmd_handles.append(h)
 
-        ax.set_xlabel("Time [s]")
-        ax.set_ylabel("Frequency [Hz]")
-        ax.set_title(str(args.title))
+        ax.set_xlabel("Time (s)")
+        if args.latex:
+            if band_mode == "ci95":
+                ax.set_ylabel("Frequency $\pm 95\% CI$ (Hz)")
+            else:
+                ax.set_ylabel("Frequency $\pm std$ (Hz)")
+        else:
+            if band_mode == "ci95":
+                ax.set_ylabel("Frequency ±95% CI (Hz)")
+            else:
+                ax.set_ylabel("Frequency ±std (Hz)")
+        #ax.set_title(str(args.title))
 
         xmin, xmax = ax.get_xlim()
         if np.isfinite(xmin) and np.isfinite(xmax):
