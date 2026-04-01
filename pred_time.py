@@ -93,6 +93,26 @@ def main(args: argparse.Namespace):
         ax.set_yscale('log')
         ax.set_xlabel("Inter-query time granularity (ms)")
         ax.set_ylabel("Frequency (log scale)")
+        
+        import matplotlib.patches as patches
+
+        # Define the coordinates for the rectangles (xmin, xmax, ymin, ymax) and the text next to each
+        rects_and_texts = [
+            {"coords": (-0.5, 3, 15, 5000), "text": "Bursts of setpoint commands", "txt_pos": (0.2, 5500), "color": "red"},
+            {"coords": (-1.0, 31.5, 15, 30000), "text": "Spontaneous events (e.g. the first setpoint command arriving)", "txt_pos": (0.7, 33000), "color": "darkorange"},
+            {"coords": (32.0, 34.0, 15, 300000), "text": "Periodic events (e.g. physical measurements)", "txt_pos": (11.6, 200000), "color": "green"}
+        ]
+
+        for rt in rects_and_texts:
+            xmin, xmax, ymin, ymax = rt["coords"]
+            width = xmax - xmin
+            height = ymax - ymin
+            # Note: For log scale y-axis, the height is just ymax-ymin mathematically
+            rect = patches.Rectangle((xmin, ymin), width, height, linewidth=2, edgecolor=rt["color"], facecolor='none', alpha=0.7)
+            ax.add_patch(rect)
+            
+            txt_x, txt_y = rt["txt_pos"]
+            ax.text(txt_x, txt_y, rt["text"], color=rt["color"], fontsize=10, ha='left', va='bottom')
 
         plt.savefig(plotsFolder / "time_granularity_distribution.pdf", bbox_inches="tight")
         plt.close()
