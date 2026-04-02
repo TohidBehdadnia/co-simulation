@@ -192,16 +192,16 @@ def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
     if not latexEnabled:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. p=0.1 f=1.5"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. p=0.5 f=1.5"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. p=0.9 f=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM modify p=0.1 f=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM modify p=0.5 f=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM modify p=0.9 f=1.5"},
         ]
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM mod. $p=0.1$ $f=1.5$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM mod. $p=0.5$ $f=1.5$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM mod. $p=0.9$ $f=1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM modify $p=0.1$ $f=1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM modify $p=0.5$ $f=1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM modify $p=0.9$ $f=1.5$"},
         ]
 
 

@@ -178,7 +178,7 @@ def main(args: argparse.Namespace):
         line_y_frac = median_granularity_ms / ax.get_ylim()[1]
         legend_y = min(max(line_y_frac - 0.04, 0.08), 0.92)
         ax.legend(handles=[median_line], loc="upper left", bbox_to_anchor=(0.01, legend_y), frameon=True)
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=15)
         plt.tight_layout()
         fig.set_size_inches(6, 4, forward=True)
         plt.savefig(plotsFolder / "classifier_prediction_times.pdf", bbox_inches="tight")
