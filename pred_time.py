@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from tqdm import tqdm
 import time
-from learner_classifier import classifiers, data, resultsFolder, plotsFolder, _apply_latex_rcparams
+from learner_classifier import classifiers, data, resultsFolder, plotsFolder, _apply_latex_rcparams, _scale_font_rcparams
 import argparse
 
 np.random.seed(42)
@@ -23,6 +23,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate the prediction time of classifiers on the test set.")
     parser.add_argument("--only-plot", action=argparse.BooleanOptionalAction, help="Only plot the stored results without running the evaluation.")
     parser.add_argument("--latex", action=argparse.BooleanOptionalAction, help="Use LaTeX formatting for the plot.")
+    parser.add_argument("--poster", action="store_true", help="Set seaborn context to poster")
     return parser.parse_args()
 
 def train_test_split(X, y, test_size=0.2, random_state=42, splitColumn=None):
@@ -88,6 +89,9 @@ def main(args: argparse.Namespace):
         if args.latex:
             _apply_latex_rcparams()
 
+        if args.poster:
+            _scale_font_rcparams(1.20)
+
         ax = plt.gca()
         sns.histplot(inter_times * 1000, bins=50, edgecolor="black", ax=ax)
         ax.set_yscale('log')
@@ -114,12 +118,18 @@ def main(args: argparse.Namespace):
             txt_x, txt_y = rt["txt_pos"]
             ax.text(txt_x, txt_y, rt["text"], color=rt["color"], fontsize=10, ha='left', va='bottom')
 
-        plt.savefig(plotsFolder / "time_granularity_distribution.pdf", bbox_inches="tight")
+        if args.poster:
+            plt.savefig(plotsFolder / "time_granularity_distribution.png", bbox_inches="tight", dpi=700)
+        else:
+            plt.savefig(plotsFolder / "time_granularity_distribution.pdf", bbox_inches="tight")
         plt.close()
 
         sns.set_theme()
+
         if args.latex:
             _apply_latex_rcparams()
+        if args.poster:
+            _scale_font_rcparams(1.30)
 
         timesResults = pd.read_csv(resultsFolder / "classifier_prediction_times.csv")
         y_column = "Average Prediction Time (ms)"
@@ -135,7 +145,7 @@ def main(args: argparse.Namespace):
             color="red",
             linestyle="--",
             linewidth=1.6,
-            label=f"Inter-query median time granularity ({median_granularity_ms:.3f} ms)",
+            label=f"Inter-query median time granularity ({median_granularity_ms:.3f} ms)" if not args.poster else f"Inter-query\nmedian time granularity ({median_granularity_ms:.3f} ms)",
         )
 
 
@@ -156,7 +166,7 @@ def main(args: argparse.Namespace):
                 ha="center",
                 va="bottom",
                 rotation=0,
-                fontsize=8,
+                fontsize=8 if not args.latex else 9,
             )
 
             y2 = row[y_column] + row["Standard Deviation (ms)"] + (annotation_offset_ms * 6)
@@ -169,19 +179,22 @@ def main(args: argparse.Namespace):
                 rotation=0,
                 color="red",
                 fontweight="bold",
-                fontsize=8,
+                fontsize=8 if not args.latex else 10,
             )
 
         #plt.title("Average Prediction Time of Classifiers on the Test Set")
         plt.xlabel("Classifier")
         plt.ylabel("Average Prediction Time (ms)") if not args.latex else plt.ylabel("Average Prediction Time $\pm std$ (ms)")
         line_y_frac = median_granularity_ms / ax.get_ylim()[1]
-        legend_y = min(max(line_y_frac - 0.04, 0.08), 0.92)
+        legend_y = min(max(line_y_frac, 0.08), 0.94)
         ax.legend(handles=[median_line], loc="upper left", bbox_to_anchor=(0.01, legend_y), frameon=True)
         plt.xticks(rotation=15)
         plt.tight_layout()
         fig.set_size_inches(6, 4, forward=True)
-        plt.savefig(plotsFolder / "classifier_prediction_times.pdf", bbox_inches="tight")
+        if args.poster:
+            plt.savefig(plotsFolder / "classifier_prediction_times.png", bbox_inches="tight", dpi=700)
+        else:
+            plt.savefig(plotsFolder / "classifier_prediction_times.pdf", bbox_inches="tight")
 
 if __name__ == "__main__":
     args = _parse_args()

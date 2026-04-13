@@ -11,6 +11,7 @@ import matplotlib
 # - CLI usage: `python plotter_comparator.py ... --latex`
 # - Programmatic usage: set env `CO_SIM_USE_LATEX=1` before importing this module.
 _WANT_LATEX = ("--latex" in sys.argv) or (str(os.environ.get("CO_SIM_USE_LATEX", "0")).strip() in {"1", "true", "yes"})
+_WANT_POSTER = ("--poster" in sys.argv)
 
 
 def _apply_latex_rcparams() -> None:
@@ -20,11 +21,30 @@ def _apply_latex_rcparams() -> None:
         {
             "text.usetex": True,
             "font.family": "serif",
-            # Use LaTeX fonts instead of matplotlib rcfonts.
+            # Keep LaTeX in control of typeface selection.
             "pgf.rcfonts": False,
             "pgf.texsystem": "pdflatex",
         }
     )
+
+
+def _scale_font_rcparams(scale: float) -> None:
+    """Scale matplotlib text sizes while preserving LaTeX-managed font families."""
+    scale = float(scale)
+
+    keys = [
+        "font.size",
+        "axes.titlesize",
+        "axes.labelsize",
+        "xtick.labelsize",
+        "ytick.labelsize",
+        "legend.fontsize",
+        "figure.titlesize",
+    ]
+    for key in keys:
+        value = matplotlib.rcParams.get(key)
+        if isinstance(value, (int, float)):
+            matplotlib.rcParams[key] = float(value) * scale
 
 import seaborn as sns
 
@@ -42,6 +62,9 @@ if _WANT_LATEX:
     except Exception:
         # Fall back to default rcParams; we can still try to enable usetex later.
         pass
+
+if _WANT_POSTER:
+    _scale_font_rcparams(1.20)
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -405,6 +428,7 @@ def _maybe_generate_pcap_plots(
     pcap_parser: str,
     scenario_order: list[str],
     scenario_colors: dict[str, object],
+    poster: bool,
 ) -> None:
     """Generate extra plots derived from tcpdump pcaps, when present.
 
@@ -493,6 +517,7 @@ def _maybe_generate_pcap_plots(
         *,
         data: dict[str, list[int]],
         out_path: Path,
+        dpi: int,
         title: str,
         order: list[str],
     ) -> None:
@@ -523,14 +548,14 @@ def _maybe_generate_pcap_plots(
             medianprops={"color": "black", "linewidth": 1.5}
         )
         ax.legend_.remove() if ax.legend_ else None
-        ax.set_xlabel("Scenario")
-        ax.set_ylabel("N. Setpoint commands received by server")
+        ax.set_xlabel("Scenario") 
+        ax.set_ylabel("N. Setpoint commands received")
         if title is not None:
             ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.set_size_inches(6, 4, forward=True)
-        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        fig.savefig(out_path, dpi=int(dpi), bbox_inches="tight")
         plt.close(fig)
         print(f"Saved pcap setpoint count boxplot to {out_path}")
 
@@ -538,6 +563,7 @@ def _maybe_generate_pcap_plots(
         *,
         data: dict[str, list[float]],
         out_path: Path,
+        dpi: int,
         title: str,
         order: list[str],
     ) -> None:
@@ -584,15 +610,19 @@ def _maybe_generate_pcap_plots(
         ax.tick_params(axis="x", rotation=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.set_size_inches(6, 4, forward=True)
-        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        fig.savefig(out_path, dpi=int(dpi), bbox_inches="tight")
         plt.close(fig)
         print(f"Saved pcap setpoint relative-arrival boxplot to {out_path}")
+
+    pcap_ext = "png" if bool(poster) else "pdf"
+    pcap_dpi = 700 if bool(poster) else 300
 
     if has_delay_strategies and rel_arrival_delay_group:
         order = [lab for lab in scenario_order if (lab in rel_arrival_delay_group)]
         _save_rel_arrival_boxplot(
             data=rel_arrival_delay_group,
-            out_path=PLOTS_DIR / f"pcap_setpoint_arrival_rel_to_meas_delay.pdf",
+            out_path=PLOTS_DIR / f"pcap_setpoint_arrival_rel_to_meas_delay.{pcap_ext}",
+            dpi=pcap_dpi,
             title=None,#"Setpoint arrival times relative to trip notify (per scenario)",
             order=order,
         )
@@ -600,7 +630,8 @@ def _maybe_generate_pcap_plots(
         order = [lab for lab in scenario_order if (lab in counts_drop_group)]
         _save_count_boxplot(
             data=counts_drop_group,
-            out_path=PLOTS_DIR / f"pcap_setpoint_count_to_server_drop.pdf",
+            out_path=PLOTS_DIR / f"pcap_setpoint_count_to_server_drop.{pcap_ext}",
+            dpi=pcap_dpi,
             title=None,#"N. Setpoint commands to server (per scenario)",
             order=order,
         )
@@ -823,6 +854,13 @@ def _parse_args() -> argparse.Namespace:
             "'none' disables pcap plots (default). 'dpkt' enables pcap plots."
         ),
     )
+
+    ap.add_argument(
+        "--poster",
+        action="store_true",
+        help="Set seaborn context to poster"
+    )
+
     return ap.parse_args()
 
 
@@ -834,6 +872,9 @@ def plot_comparison(args: argparse.Namespace) -> None:
             _apply_latex_rcparams()
         except Exception:
             pass
+    
+    if getattr(args, "poster", False):
+        _scale_font_rcparams(1.20)
 
     if not RESULTS_DIR.exists():
         raise FileNotFoundError(f"results folder not found: {RESULTS_DIR}")
@@ -1146,6 +1187,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
         handles.extend(mean_handles)
         handles.append(trip_handle)
         handles.extend(last_cmd_handles)
+        legend_fontsize = 8 if not args.poster else 10
         
         if not (has_drop or has_mod):
             ax.legend(
@@ -1153,7 +1195,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 labels=[h.get_label() for h in handles],
                 loc="best",
                 ncol=2,
-                fontsize=8,
+            fontsize=legend_fontsize,
                 frameon=True,
                 framealpha=0.9,
                 handlelength=2.0,
@@ -1165,7 +1207,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 handles=handles,
                 labels=[h.get_label() for h in handles],
                 loc="best",
-                fontsize=8,
+                fontsize=legend_fontsize,
                 frameon=True,
                 framealpha=0.9,
                 handlelength=2.0,
@@ -1173,12 +1215,15 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 columnspacing=1.2
             ).set_zorder(20)
 
-        out_name = str(Path(out_name_base).with_suffix(".pdf"))
+        if args.poster:
+            out_name = str(Path(out_name_base).with_suffix(".png"))
+        else:
+            out_name = str(Path(out_name_base).with_suffix(".pdf"))
         out_path = PLOTS_DIR / out_name
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.subplots_adjust(bottom=0.30)
-        fig.set_size_inches(6, 5, forward=True)
-        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        fig.set_size_inches(7, 5.5, forward=True) if args.poster else fig.set_size_inches(6, 5, forward=True)
+        fig.savefig(out_path, dpi=700, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved plot to {out_path}")
 
@@ -1212,6 +1257,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
             pcap_parser=pcap_parser,
             scenario_order=scenario_order,
             scenario_colors=scenario_colors,
+            poster=bool(getattr(args, "poster", False)),
         )
 
 

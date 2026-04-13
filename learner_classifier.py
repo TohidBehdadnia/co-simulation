@@ -74,11 +74,30 @@ def _apply_latex_rcparams() -> None:
         {
             "text.usetex": True,
             "font.family": "serif",
-            # Use LaTeX fonts instead of matplotlib rcfonts.
+            # Keep LaTeX in control of typeface selection.
             "pgf.rcfonts": False,
             "pgf.texsystem": "pdflatex",
         }
     )
+
+
+def _scale_font_rcparams(scale: float) -> None:
+    """Scale matplotlib text sizes while preserving LaTeX-managed font families."""
+    scale = float(scale)
+
+    keys = [
+        "font.size",
+        "axes.titlesize",
+        "axes.labelsize",
+        "xtick.labelsize",
+        "ytick.labelsize",
+        "legend.fontsize",
+        "figure.titlesize",
+    ]
+    for key in keys:
+        value = plt.rcParams.get(key)
+        if isinstance(value, (int, float)):
+            plt.rcParams[key] = float(value) * scale
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Script for training and evaluating ML models on the curated data")
@@ -96,6 +115,12 @@ def _parse_args() -> argparse.Namespace:
             "Enable LaTeX text rendering in plots (PGF backend when possible). "
             "Requires a working LaTeX installation (e.g. pdflatex)."
         )
+    )
+
+    parser.add_argument(
+        "--poster",
+        action="store_true",
+        help="Set seaborn context to poster"
     )
     
     return parser.parse_args()
@@ -180,6 +205,9 @@ def main(args: argparse.Namespace):
             _apply_latex_rcparams()
         except Exception:
             pass
+            
+    if args.poster:
+        _scale_font_rcparams(1.30)
 
     scores["Condition"] = scores["Maintain Cyber-Layer Features"].apply(
         lambda x: "With Cyber-Layer Features" if x else "Without Cyber-Layer Features"
@@ -286,7 +314,10 @@ def main(args: argparse.Namespace):
 
     # Reserve room on the right for legend
     plt.tight_layout(rect=[0, 0, 0.82, 1])
-    plt.savefig(plotsFolder / "classifier_comparison.pdf", bbox_inches="tight")
+    if args.poster:
+        plt.savefig(plotsFolder / "classifier_comparison.png", bbox_inches="tight", dpi=700)
+    else:
+        plt.savefig(plotsFolder / "classifier_comparison.pdf", bbox_inches="tight")
 
     # Store the average F1 score and std for each classifier and time window in a CSV file for later analysis
     summary_data = []
@@ -307,6 +338,9 @@ def main(args: argparse.Namespace):
             })
     summary_df = pd.DataFrame(summary_data)
     summary_df.to_csv(resultsFolder / "classifier_summary.csv", index=False)
+
+    if args.poster:
+        sns.set_theme(font_scale=1, font="serif")
 
     # Build one confusion-matrix grid for the 1-2 seconds window:
     # columns are classifiers and rows are conditions
@@ -413,7 +447,10 @@ def main(args: argparse.Namespace):
 
     #fig.suptitle(f"Aggregated Confusion Matrices - {target_time_window}", y=0.995)
     fig.subplots_adjust(left=0.06, right=0.50, bottom=0.10, top=0.52, wspace=0.25, hspace=0.22)
-    plt.savefig(plotsFolder / "confusion_matrices_by_model_1_2s.pdf", bbox_inches="tight")
+    if args.poster:
+        plt.savefig(plotsFolder / "confusion_matrices_by_model_1_2s.png", bbox_inches="tight", dpi=700)
+    else:
+        plt.savefig(plotsFolder / "confusion_matrices_by_model_1_2s.pdf", bbox_inches="tight")
 
 if __name__ == "__main__":
     args = _parse_args()

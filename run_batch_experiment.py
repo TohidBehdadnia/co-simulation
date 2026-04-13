@@ -263,6 +263,13 @@ def main() -> int:
         ),
     )
 
+    ap.add_argument(
+        "--poster",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Increase font size"
+    )
+
     args = ap.parse_args()
 
     if int(args.num_runs) <= 0:
@@ -452,6 +459,7 @@ def main() -> int:
             max_runs=int(args.num_runs),
             pcap_parser=str(args.pcap_parser),
             latex=bool(args.latex),
+            poster=bool(args.poster),
         )
         plotter_comparator.plot_comparison(plot_args)
     return 0
