@@ -155,7 +155,7 @@ def main(args: argparse.Namespace):
         ).max()
         for patch, (_, row) in zip(ax.patches, timesResults.iterrows()):
             # Compute also how many inter-times are below the average value (convert iter_times to milliseconds)
-            percLost = (len([t for t in (inter_times * 1000) if t < row[y_column]]) / len(inter_times)) * 100
+            percLost = ((len([t for t in (inter_times * 1000) if t < row[y_column]])-1) / len(inter_times)) * 100
 
             x = patch.get_x() + patch.get_width() / 2
             y = row[y_column] + row["Standard Deviation (ms)"] + annotation_offset_ms
@@ -169,7 +169,8 @@ def main(args: argparse.Namespace):
                 fontsize=8 if not args.latex else 9,
             )
 
-            y2 = row[y_column] + row["Standard Deviation (ms)"] + (annotation_offset_ms * 6)
+            y_offset_multiplier = 3.9 if row["Classifier"] in ["MNB", "MLP", "DT"] else 4.5
+            y2 = row[y_column] + row["Standard Deviation (ms)"] + (annotation_offset_ms * y_offset_multiplier)
             ax.text(
                 x,
                 y2,
@@ -186,7 +187,7 @@ def main(args: argparse.Namespace):
         plt.xlabel("Classifier")
         plt.ylabel("Average Prediction Time (ms)") if not args.latex else plt.ylabel("Average Prediction Time $\pm std$ (ms)")
         line_y_frac = median_granularity_ms / ax.get_ylim()[1]
-        legend_y = min(max(line_y_frac, 0.08), 0.94)
+        legend_y = min(max(line_y_frac + 1, 0.08), 0.94)
         ax.legend(handles=[median_line], loc="upper left", bbox_to_anchor=(0.01, legend_y), frameon=True)
         plt.xticks(rotation=15)
         plt.tight_layout()
