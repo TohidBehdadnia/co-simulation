@@ -272,12 +272,25 @@ def main(args: argparse.Namespace):
             )
 
     #ax.set_title("Classifier Performance With vs Without Cyber-Layer Features", pad=14)
-    ax.set_xlabel("Time Window")
-    if not latex: ax.set_ylabel("Macro F1-Score (± std)") 
-    else: ax.set_ylabel("Macro F1-Score $(\pm std$)")  
+    if not latex:
+        ax.set_xlabel("Time Window")
+    else:
+        ax.set_xlabel("$\\mathcal{{W}}_{{q}} \\rightarrow [\\tau_q^{{\\min}}, \\tau_q^{{\\max}}) $ (s)")
+    if not latex: ax.set_ylabel("Macro F1-Score ± SD") 
+    else: ax.set_ylabel("Macro F1-Score $\pm$ SD")  
     ax.set_ylim(0, 1.0)
     ax.set_xticks(x_centers)
-    ax.set_xticklabels(time_windows, rotation=15)
+    if latex:
+        latex_labels = []
+        for window in time_windows:
+            window_text = str(window).replace(" seconds", "")
+            parts = window_text.split("-")
+            start = parts[0].strip() if len(parts) > 0 else ""
+            end = parts[1].strip() if len(parts) > 1 else ""
+            latex_labels.append(f"$[{start},{end})$")
+        ax.set_xticklabels(latex_labels, rotation=0)
+    else:
+        ax.set_xticklabels(time_windows, rotation=15)
 
     # Single legend box with section headers for classifiers and dataset conditions
     legend_handles = [
@@ -296,9 +309,9 @@ def main(args: argparse.Namespace):
             edgecolor=".2",
             hatch=hatches[cond],
             label=(
-                "Without\nCyber-Layer Features"
+                "$z^{{(phys)}}$"
                 if cond == "Without Cyber-Layer Features"
-                else "With\nCyber-Layer Features"
+                else "$z^{{(cp)}}$"
             ),
         )
         for cond in conditions
@@ -430,8 +443,18 @@ def main(args: argparse.Namespace):
                 ax.set_title(clf)
 
             if col_idx == 0:
-                condition_short = "Without Cyber-Layer\nFeatures\n" if condition == "Without Cyber-Layer Features" else "With Cyber-Layer\nFeatures\n"
-                ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
+                if latex:
+                    condition_short =  \
+                    "Trained on $z^{{(phys)}}$\n" \
+                    if condition == "Without Cyber-Layer Features" \
+                    else "Trained on $z^{{(cp)}}$\n"
+                    ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
+                else:
+                    condition_short =  \
+                    "Without Cyber-Layer\nFeatures\n" \
+                    if condition == "Without Cyber-Layer Features" \
+                    else "With Cyber-Layer\nFeatures\n"
+                    ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
             else:
                 ax.set_ylabel("")
 

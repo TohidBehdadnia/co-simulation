@@ -159,16 +159,16 @@ def _build_plot_specs(latexEnabled: bool = False) -> list[str]:
     if not latexEnabled:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay 150–350ms"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay 400–600ms"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay 650–850ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay 150–350 ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay 400–600 ms"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay 650–850 ms"},
         ]
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "MITM delay $150–350\\mathrm{{ms}}$"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "MITM delay $400–600\\mathrm{{ms}}$"},
-            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "MITM delay $650–850\\mathrm{{ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "label": "delay $\\Delta_k \\in 150–350\\mathrm{{ ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "label": "delay $\\Delta_k \\in 400–600\\mathrm{{ ms}}$"},
+            {"scenario_id": "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd", "label": "delay $\\Delta_k \\in 650–850\\mathrm{{ ms}}$"},
         ]
 
 
@@ -183,25 +183,25 @@ def _build_plot_specs_drop(latexEnabled: bool = False) -> list[dict]:
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "MITM drop $p=0.1$"},
-            {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "MITM drop $p=0.5$"},
-            {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "MITM drop $p=0.9$"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p1_percmd", "label": "drop $p_{{drop}}=0.1$"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p5_percmd", "label": "drop $p_{{drop}}=0.5$"},
+            {"scenario_id": "case_iec104_mitm_drop_pdrop0p9_percmd", "label": "drop $p_{{drop}}=0.9$"},
         ]
 
 def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
     if not latexEnabled:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM modify p=0.1 f=1.5"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM modify p=0.5 f=1.5"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM modify p=0.9 f=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM modify p=0.1 α=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM modify p=0.5 α=1.5"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM modify p=0.9 α=1.5"},
         ]
     else:
         return [
             {"scenario_id": "case_iec104_direct_percmd", "label": "Normal"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "MITM modify $p=0.1$ $f=1.5$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "MITM modify $p=0.5$ $f=1.5$"},
-            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "MITM modify $p=0.9$ $f=1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "label": "modify $p_{{mod}}=0.1$ $\\alpha =1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "label": "modify $p_{{mod}}=0.5$ $\\alpha =1.5$"},
+            {"scenario_id": "case_iec104_mitm_mod_pmod0p9_f1p5_percmd", "label": "modify $p_{{mod}}=0.9$ $\\alpha =1.5$"},
         ]
 
 

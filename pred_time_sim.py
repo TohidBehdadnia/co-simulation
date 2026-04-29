@@ -125,8 +125,8 @@ def _plot_time_granularity_distribution(inter_times: np.ndarray, args: argparse.
     ax.set_yscale("log")
     ax.set_xlabel("Inter-query time granularity (ms)")
     if args.latex:
-        ax.set_xlabel("$\\Delta t^{{arr}}$ (ms)")
-    ax.set_ylabel("Frequency (log scale)")
+        ax.set_xlabel("Inter-arrival time, $\\Delta t^{{arr}}$ (ms)")
+    ax.set_ylabel("Observation count (log scale)")
 
     import matplotlib.patches as patches
 
@@ -300,7 +300,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
         linestyle="--",
         linewidth=1.6,
         label=(
-            f"Median $\Delta t^{{arr}}$ ({median_granularity_ms:.3f} ms)"
+            f"Median inter-arrival time, $\Delta t^{{arr}}$ ({median_granularity_ms:.3f} ms)"
             if not args.poster
             else f"Inter-query\nmedian time granularity ({median_granularity_ms:.3f} ms)"
         ),
@@ -351,7 +351,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
     if not args.latex:
         plt.ylabel("Average Prediction Time (ms)")
     else:
-        plt.ylabel("Average Prediction Time $\overline{T} \pm SD$ (ms)")
+        plt.ylabel("Average inference time, $\overline{T} \pm$ SD (ms)")
 
     line_y_frac = median_granularity_ms / ax.get_ylim()[1]
     legend_y = min(max(line_y_frac + 1, 0.08), 0.94)

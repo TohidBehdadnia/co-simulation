@@ -549,7 +549,10 @@ def _maybe_generate_pcap_plots(
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario") 
-        ax.set_ylabel("N. Setpoint commands received")
+        if _WANT_LATEX:
+            ax.set_ylabel("Cumulative received commands, $c(\\tau_j)$")
+        else:    
+            ax.set_ylabel("N. Setpoint commands received")
         if title is not None:
             ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
@@ -600,7 +603,10 @@ def _maybe_generate_pcap_plots(
         )
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
-        ax.set_ylabel("Setpoint commands arrival time (s)")
+        if _WANT_LATEX:
+            ax.set_ylabel("Setpoint commands arrival time, $t_k^{{arr}}$ (s)")
+        else:
+            ax.set_ylabel("Setpoint commands arrival time (s)")
 
         from matplotlib.ticker import MultipleLocator
 
@@ -1136,7 +1142,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 band_txt = f"(mean {band_txt})"
                 label_str = f"Last set. t={m:.3f}s"#f"Last setpoint t={m:.3f}s {band_txt}"
                 if _WANT_LATEX:
-                    label_str = f"Last set. $t={m:.3f}\\mathrm{{s}}$"
+                    label_str = f"Last $m_k$ $t={m:.3f}\\mathrm{{s}}$"
                 h = ax.axvline(
                     m,
                     color=color,
@@ -1148,17 +1154,18 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 )
                 last_cmd_handles.append(h)
 
-        ax.set_xlabel("Time (s)")
+        ax.set_xlabel("Time, t (s)")
         if args.latex:
+            ax.set_xlabel("Time, $t$ (s)")
             if band_mode == "ci95":
-                ax.set_ylabel("Frequency $\pm 95\% CI$ (Hz)")
+                ax.set_ylabel("Frequency, $\omega(t) \pm 95\%$ CI (Hz)")
             else:
-                ax.set_ylabel("Frequency $\pm std$ (Hz)")
+                ax.set_ylabel("Frequency, $\omega(t) \pm \mathrm{{SD}}$ (Hz)")
         else:
             if band_mode == "ci95":
                 ax.set_ylabel("Frequency ±95% CI (Hz)")
             else:
-                ax.set_ylabel("Frequency ±std (Hz)")
+                ax.set_ylabel("Frequency ±SD (Hz)")
         #ax.set_title(str(args.title))
 
         xmin, xmax = ax.get_xlim()
