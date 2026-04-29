@@ -7,6 +7,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import warnings
 
 from learner_classifier import (
     classifiers,
@@ -300,7 +301,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
         linestyle="--",
         linewidth=1.6,
         label=(
-            f"Median inter-arrival time, $\Delta t^{{arr}}$ ({median_granularity_ms:.3f} ms)"
+            f"Median inter-arrival time, $\\Delta t^{{arr}}$ ({median_granularity_ms:.3f} ms)"
             if not args.poster
             else f"Inter-query\nmedian time granularity ({median_granularity_ms:.3f} ms)"
         ),
@@ -318,7 +319,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
             (
                 f"avg: {row[y_column]:.3f} ms\nstd: {row['Standard Deviation (ms)']:.3f} ms"
                 if not args.latex
-                else f"${row[y_column]:.3f}$ $\pm {row['Standard Deviation (ms)']:.3f}$ ms"
+                else f"${row[y_column]:.3f}$ $\\pm {row['Standard Deviation (ms)']:.3f}$ ms"
             ),
             ha="center",
             va="bottom",
@@ -351,7 +352,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
     if not args.latex:
         plt.ylabel("Average Prediction Time (ms)")
     else:
-        plt.ylabel("Average inference time, $\overline{T} \pm$ SD (ms)")
+        plt.ylabel("Average inference time, $\\overline{{T}} \\pm$ SD (ms)")
 
     line_y_frac = median_granularity_ms / ax.get_ylim()[1]
     legend_y = min(max(line_y_frac + 1, 0.08), 0.94)
@@ -367,6 +368,8 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
 
 def main(args: argparse.Namespace) -> None:
     results_path = args.out_csv
+    # Suppress the specific configuration propagation warning
+    warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.delayed should be used.*")
 
     if not args.only_plot:
         X = data.drop(columns=["class"])
