@@ -338,7 +338,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
             (
                 f"{dropped_pct:.2f}%\nof queries lost"
                 if not args.latex
-                else f"\\textbf{{$\\rho_{{loss}} =$ {dropped_pct:.2f} \\%}}"
+                else f"\\textbf{{$\\rho_{{loss}} \\approx$ {dropped_pct:.2f} \\%}}"
             ),
             ha="center",
             va="bottom",
@@ -352,7 +352,7 @@ def _plot_results(results: pd.DataFrame, args: argparse.Namespace) -> None:
     if not args.latex:
         plt.ylabel("Average Prediction Time (ms)")
     else:
-        plt.ylabel("Average inference time, $\\overline{{T}} \\pm$ SD (ms)")
+        plt.ylabel("Average inference time, $\\overline{{T}}_{{\\mathrm{{inf}}}} \\pm$ SD (ms)")
 
     line_y_frac = median_granularity_ms / ax.get_ylim()[1]
     legend_y = min(max(line_y_frac + 1, 0.08), 0.94)

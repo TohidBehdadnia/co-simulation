@@ -454,6 +454,7 @@ def _maybe_generate_pcap_plots(
 
     rel_arrival_delay_group: dict[str, list[float]] = {}
     counts_drop_group: dict[str, list[int]] = {}
+    direct_label: str | None = None
 
     for scenario_id, run_ids in scenario_run_ids.items():
         run_ids_int = [int(x) for x in run_ids]
@@ -468,6 +469,8 @@ def _maybe_generate_pcap_plots(
             continue
 
         label = str(label_by_id.get(scenario_id, scenario_id))
+        if is_direct and direct_label is None:
+            direct_label = label
 
         for run_id in run_ids_int:
             pcap_path = logs_dir / f"run_{int(run_id)}" / "traffic.pcap"
@@ -520,11 +523,21 @@ def _maybe_generate_pcap_plots(
         dpi: int,
         title: str,
         order: list[str],
+        baseline_label: str | None,
     ) -> None:
+        baseline_mean: float | None = None
+        if baseline_label and baseline_label in data:
+            base_vals = [int(v) for v in data.get(baseline_label, []) if v is not None]
+            if base_vals:
+                baseline_mean = float(np.mean(base_vals))
+
         rows: list[tuple[str, int]] = []
         for lab, values in data.items():
             for v in values:
-                rows.append((str(lab), int(v)))
+                if baseline_mean is not None and baseline_mean > 0.0:
+                    rows.append((str(lab), float(v) * 100.0 / baseline_mean))
+                else:
+                    rows.append((str(lab), int(v)))
         if not rows:
             return
 
@@ -550,9 +563,15 @@ def _maybe_generate_pcap_plots(
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario") 
         if _WANT_LATEX:
-            ax.set_ylabel("Cumulative received commands, $c(\\tau_j)$")
-        else:    
-            ax.set_ylabel("N. Setpoint commands received")
+            if baseline_mean is not None and baseline_mean > 0.0:
+                ax.set_ylabel("Cumulative received commands, $c(\\tau_j)$ (\\%)")
+            else:
+                ax.set_ylabel("Cumulative received commands, $c(\\tau_j)$")
+        else:
+            if baseline_mean is not None and baseline_mean > 0.0:
+                ax.set_ylabel("Setpoint commands received (% of direct)")
+            else:
+                ax.set_ylabel("N. Setpoint commands received")
         if title is not None:
             ax.set_title(str(title))
         ax.tick_params(axis="x", rotation=15)
@@ -640,6 +659,7 @@ def _maybe_generate_pcap_plots(
             dpi=pcap_dpi,
             title=None,#"N. Setpoint commands to server (per scenario)",
             order=order,
+            baseline_label=direct_label,
         )
 
 
@@ -905,7 +925,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
     fig = None
     ax = None
     mean_handles: list[plt.Line2D] = []
-    last_cmd_stats: list[tuple[str, str, float | None, float]] = []  # (label, color, mean, hw)
+    last_cmd_stats: list[tuple[str, str, float | None, float, bool]] = []  # (label, color, mean, hw, is_attack)
     # Per-strategy summary stats to export when plotting mean ±95% CI.
     # Columns requested: average, median, minimum, maximum, relative accuracy.
     # Here, these are computed on all frequency samples across runs after the trip time.
@@ -942,6 +962,7 @@ def plot_comparison(args: argparse.Namespace) -> None:
     i = 1
     for spec in specs:
         scenario_id = spec.scenario_id
+        is_attack = "direct" not in str(scenario_id).lower()
         label = spec.label
         npz_paths = _resolve_npz_paths(scenario_id)
         npz_paths = [p for p in npz_paths if p.exists()]
@@ -1109,11 +1130,11 @@ def plot_comparison(args: argparse.Namespace) -> None:
                                 hw = float(tcrit) * s / np.sqrt(float(last_arr.size))
                         else:
                             hw = 0.0
-                        last_cmd_stats.append((label, line_color, m, float(hw)))
+                        last_cmd_stats.append((label, line_color, m, float(hw), is_attack))
                     else:
-                        last_cmd_stats.append((label, line_color, None, 0.0))
+                        last_cmd_stats.append((label, line_color, None, 0.0, is_attack))
                 else:
-                    last_cmd_stats.append((label, line_color, None, 0.0))
+                    last_cmd_stats.append((label, line_color, None, 0.0, is_attack))
         i += 1
 
     if want_freq_plot:
@@ -1122,15 +1143,19 @@ def plot_comparison(args: argparse.Namespace) -> None:
         # Draw last-command mean vertical lines and uncertainty spans after curves are plotted.
         last_cmd_handles: list[plt.Line2D] = []
         if last_cmd_stats and not (has_drop or has_mod):
-            for (label, color, m, hw) in last_cmd_stats:
+            for (label, color, m, hw, is_attack) in last_cmd_stats:
                 if m is None:
+                    if _WANT_LATEX:
+                        label_str = "$\\tilde{m}_K$: none received" if is_attack else "$m_K$: none received"
+                    else:
+                        label_str = " m_K: none received" if not is_attack else "m_K~: none received"
                     (h,) = ax.plot(
                         [],
                         [],
                         color=color,
                         linestyle="--",
                         linewidth=1.6,
-                        label=f"Last set.: none received",
+                        label=label_str,
                     )
                     last_cmd_handles.append(h)
                     continue
@@ -1140,9 +1165,14 @@ def plot_comparison(args: argparse.Namespace) -> None:
 
                 band_txt = "±95% CI" if band_mode == "ci95" else "±1 SD"
                 band_txt = f"(mean {band_txt})"
-                label_str = f"Last set. t={m:.3f}s"#f"Last setpoint t={m:.3f}s {band_txt}"
+                label_str = f"m_K t={m:.3f}s"
                 if _WANT_LATEX:
-                    label_str = f"Last $m_k$ $t={m:.3f}\\mathrm{{s}}$"
+                    label_str = f"$m_K$: $t={m:.3f}\\mathrm{{s}}$"
+                    if is_attack:
+                        label_str = f"$\\tilde{{m}}_K$: $t={m:.3f}\\mathrm{{s}}$"
+                else:
+                    if is_attack:
+                        label_str = f"m_K~: t={m:.3f}s"
                 h = ax.axvline(
                     m,
                     color=color,
@@ -1176,9 +1206,9 @@ def plot_comparison(args: argparse.Namespace) -> None:
                 if tick_end >= tick_start:
                     ax.set_xticks(np.arange(tick_start, tick_end + 1, 1))
 
-        label_str = f"Gen 2 trip t={float(t_trip):.1f}s"
+        label_str = f"Gen 2 trip: t={float(t_trip):.1f}s"
         if _WANT_LATEX:
-            label_str = f"Gen 2 trip $t={float(t_trip):.1f}\\mathrm{{s}}$"
+            label_str = f"Gen 2 trip: $t={float(t_trip):.1f}\\mathrm{{s}}$"
         
         trip_handle = ax.axvline(
             float(t_trip),
