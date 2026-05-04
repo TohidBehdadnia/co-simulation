@@ -6,6 +6,8 @@ from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -27,7 +29,12 @@ data = pd.read_csv(dataFolder / "final_data.csv")
 
 classifiers = {
     "MNB": MultinomialNB(),
-    "MLP": MLPClassifier(max_iter=300, random_state=42, n_iter_no_change=10),
+    "MLP": Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("mlp", MLPClassifier(max_iter=300, random_state=42, n_iter_no_change=10)),
+        ]
+    ),
     "KNN": KNeighborsClassifier(n_neighbors=20, n_jobs=-1),
     "DT": DecisionTreeClassifier(max_depth=10, random_state=42),
     "RFC": RandomForestClassifier(max_depth=10, random_state=42, n_jobs=-1)
@@ -144,24 +151,28 @@ def _parse_label_order(value) -> list[str]:
 
 def main(args: argparse.Namespace):
     # Time windows are defined as (start, end) in seconds relative to the trip event
-    time_window_widths = [(0,1), (1,2), (2,3), (3,4)]
+    time_window_widths = [(0,1), (1,2), (2,3)]
 
-    maitain_it_features = [False, True]
+    physical_features = ["t-from-trip", "freq", "freq-lag-50ms", "freq-lag-100ms"]
+    cyber_features = ["t-from-trip", "setpoint-count", "average-delay"]
+    combined_features = list(dict.fromkeys(physical_features + cyber_features))
+    feature_sets = [
+        {"name": "Physical Only", "features": physical_features},
+        {"name": "Cyber Only", "features": cyber_features},
+        {"name": "Physical + Cyber", "features": combined_features},
+    ]
 
     if not bool(args.only_plot):
         score_rows = []
 
-        for maintain_it in tqdm(maitain_it_features, desc="Dataset conditions", total=len(maitain_it_features), bar_format=bar_format):
-            if not maintain_it:
-                data_working = data.drop(columns=["setpoint-count", "average-delay"])
-            else:
-                data_working = data.copy()
+        for feature_set in tqdm(feature_sets, desc="Dataset conditions", total=len(feature_sets), bar_format=bar_format):
+            feature_cols = feature_set["features"]
             for w in tqdm(time_window_widths, desc="Time windows", total=len(time_window_widths), bar_format=bar_format, leave=False):
                 start = w[0]
                 end = w[1]
                 # Just consider the samples belonging to the training window
-                data_window = data_working[(data_working["t-from-trip"] >= start) & (data_working["t-from-trip"] < end)]
-                X = data_window.drop("class", axis=1)
+                data_window = data[(data["t-from-trip"] >= start) & (data["t-from-trip"] < end)]
+                X = data_window[feature_cols + ["run-id"]]
                 y = data_window["class"] 
 
                 for clfName, clf in tqdm(classifiers.items(), desc="Classifiers", total=len(classifiers), bar_format=bar_format, leave=False):
@@ -182,14 +193,18 @@ def main(args: argparse.Namespace):
                             "F1-Score": report["weighted avg"]["f1-score"],
                             "Confusion Matrix Order": labels.tolist(),
                             "Confusion Matrix": confusion_matrix(y_test, y_pred, labels=labels).tolist(),
-                            "Maintain Cyber-Layer Features": maintain_it
+                            "Feature Set": feature_set["name"]
                         })
         scores = pd.DataFrame(score_rows)
         scores.to_csv(resultsFolder / "classifier_scores.csv", index=False)
     else:
         scores = pd.read_csv(resultsFolder / "classifier_scores.csv")
 
-    scores["Maintain Cyber-Layer Features"] = scores["Maintain Cyber-Layer Features"].apply(_to_bool)
+    if "Feature Set" not in scores.columns and "Maintain Cyber-Layer Features" in scores.columns:
+        scores["Maintain Cyber-Layer Features"] = scores["Maintain Cyber-Layer Features"].apply(_to_bool)
+        scores["Feature Set"] = scores["Maintain Cyber-Layer Features"].apply(
+            lambda x: "Physical + Cyber" if x else "Physical Only"
+        )
     scores["Confusion Matrix"] = scores["Confusion Matrix"].apply(_parse_confusion_matrix)
     scores["Confusion Matrix Order"] = scores["Confusion Matrix Order"].apply(_parse_label_order)
 
@@ -209,9 +224,7 @@ def main(args: argparse.Namespace):
     if args.poster:
         _scale_font_rcparams(1.30)
 
-    scores["Condition"] = scores["Maintain Cyber-Layer Features"].apply(
-        lambda x: "With Cyber-Layer Features" if x else "Without Cyber-Layer Features"
-    )
+    scores["Condition"] = scores["Feature Set"].astype(str)
 
     # Keep time windows in chronological order (e.g., 1-2, 2-3, ...)
     time_windows = sorted(
@@ -223,14 +236,18 @@ def main(args: argparse.Namespace):
     classifiers_present = set(scores["Classifier"].unique())
     classifiers_list = [clf for clf in desired_order if clf in classifiers_present]
 
-    conditions = ["Without Cyber-Layer Features", "With Cyber-Layer Features"]
+    conditions = ["Physical Only", "Cyber Only", "Physical + Cyber"]
 
     # Visual mapping: same color per classifier, different hatches per condition
     colors_map = {
         clf: color
         for clf, color in zip(classifiers_list, sns.color_palette(n_colors=len(classifiers_list)))
     }
-    hatches = {"Without Cyber-Layer Features": "", "With Cyber-Layer Features": "//"}
+    hatches = {
+        "Physical Only": "",
+        "Cyber Only": "//",
+        "Physical + Cyber": "xx",
+    }
 
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=False)
 
@@ -271,7 +288,6 @@ def main(args: argparse.Namespace):
                 error_kw={"ecolor": ".2", "elinewidth": 0.9},
             )
 
-    #ax.set_title("Classifier Performance With vs Without Cyber-Layer Features", pad=14)
     if not latex:
         ax.set_xlabel("Time Window")
     else:
@@ -310,7 +326,9 @@ def main(args: argparse.Namespace):
             hatch=hatches[cond],
             label=(
                 "$z^{{(phys)}}$"
-                if cond == "Without Cyber-Layer Features"
+                if cond == "Physical Only"
+                else "$z^{{(cyb)}}$"
+                if cond == "Cyber Only"
                 else "$z^{{(cp)}}$"
             ),
         )
@@ -356,8 +374,7 @@ def main(args: argparse.Namespace):
         sns.set_theme(font_scale=1, font="serif")
 
     # Build one confusion-matrix grid for the 1-2 seconds window:
-    # columns are classifiers and rows are conditions
-    # (without cyber-layer features on top, with cyber-layer features below).
+    # columns are classifiers and rows are conditions.
     preferred_order = ["normal", "delay", "drop", "mod"]
     available_labels = data["class"].dropna().astype(str).unique().tolist()
     class_labels = [label for label in preferred_order if label in available_labels]
@@ -374,8 +391,7 @@ def main(args: argparse.Namespace):
             (scores["Classifier"] == clf)
             & (scores["Time Window"] == target_time_window)
         ]
-        cm_with = np.zeros((n_labels, n_labels), dtype=int)
-        cm_without = np.zeros((n_labels, n_labels), dtype=int)
+        cm_aggregates = {condition: np.zeros((n_labels, n_labels), dtype=int) for condition in conditions}
 
         for _, row in clf_data.iterrows():
             row_labels = row["Confusion Matrix Order"]
@@ -384,17 +400,13 @@ def main(args: argparse.Namespace):
             cm_df = pd.DataFrame(cm, index=row_labels, columns=row_labels)
             cm_aligned = cm_df.reindex(index=class_labels, columns=class_labels, fill_value=0).to_numpy(dtype=int)
 
-            if row["Condition"] == "With Cyber-Layer Features":
-                cm_with += cm_aligned
-            else:
-                cm_without += cm_aligned
+            condition = row["Condition"]
+            if condition in cm_aggregates:
+                cm_aggregates[condition] += cm_aligned
 
-        aggregated_cm[clf] = {
-            "Without Cyber-Layer Features": cm_without,
-            "With Cyber-Layer Features": cm_with,
-        }
+        aggregated_cm[clf] = cm_aggregates
 
-    n_rows = 2
+    n_rows = len(conditions)
     n_cols = len(classifiers_list)
     fig, axes = plt.subplots(
         nrows=n_rows,
@@ -405,7 +417,7 @@ def main(args: argparse.Namespace):
     )
     cbar_ax = fig.add_axes([0.51, 0.11, 0.010, 0.4])
 
-    condition_layout = ["Without Cyber-Layer Features", "With Cyber-Layer Features"]
+    condition_layout = conditions
     normalization_mode = "row"
     for row_idx, condition in enumerate(condition_layout):
         for col_idx, clf in enumerate(classifiers_list):
@@ -444,16 +456,20 @@ def main(args: argparse.Namespace):
 
             if col_idx == 0:
                 if latex:
-                    condition_short =  \
-                    "Trained on $z^{{(phys)}}$\n" \
-                    if condition == "Without Cyber-Layer Features" \
-                    else "Trained on $z^{{(cp)}}$\n"
+                    if condition == "Physical Only":
+                        condition_short = "Trained on $z^{{(phys)}}$\n"
+                    elif condition == "Cyber Only":
+                        condition_short = "Trained on $z^{{(cyb)}}$\n"
+                    else:
+                        condition_short = "Trained on $z^{{(cp)}}$\n"
                     ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
                 else:
-                    condition_short =  \
-                    "Without Cyber-Layer\nFeatures\n" \
-                    if condition == "Without Cyber-Layer Features" \
-                    else "With Cyber-Layer\nFeatures\n"
+                    if condition == "Physical Only":
+                        condition_short = "Physical\nFeatures\n"
+                    elif condition == "Cyber Only":
+                        condition_short = "Cyber\nFeatures\n"
+                    else:
+                        condition_short = "Physical + Cyber\nFeatures\n"
                     ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
             else:
                 ax.set_ylabel("")
