@@ -1,25 +1,39 @@
 # co-simulation
 
-This repo contains an ANDES-IEC 104-based co-simulation that measures control/communication characterustucs over IEC-104 and frequency response after a contingency event and the subsequent load shedding operations are performed. 
+This repo contains an ANDES-IEC 104-based co-simulation that measures control/communication characterustics over IEC-104 and frequency response after a contingency event and the subsequent load shedding operations are performed. 
 It also allows for the simulation of alternative Man In The Middle (MITM) attack vectors, such as delay, drop, and modification of IEC-104 setpoint commands.
 Moreover, it also includes a machine learning-based attack vector classification component that evaluates the performance of several classifiers in distinguishing between normal operation and different attack scenarios based on features derived from the frequency response and cyber-layer characteristics.
 
 This README specifies the setup and commands to reproduce the results in the associated paper. The code is organized into several Python scripts, each responsible for different aspects of the simulation, data processing, and plotting.
 
 Folders structure:
-- Plots: plots/
-- Per-run data: results/
-- Run logs: logs/
-- ML dataset: data/final_data.csv
+```
+co-simulation/
+├── plots/      // Generated plots
+├── results/    // Per-run data (e.g., frequency response, features)
+├── logs/       // Run logs and pcaps
+├── data/       // Processed datasets (e.g., final_data.csv for ML)
+...
+```
+
+## Software requirements
+The following installation steps assume a Debian-based Linux distribution. The code is written in Python and relies on several libraries for simulation, data processing, and plotting. The specific dependencies are listed in the requirements.txt file.
+
+In our experiments, we used the following software versions:
+- Python: 3.10.12
+- tcpdump (for packet capture): 4.99.1
 
 ## Setup (once)
 
-1. Create a Python virtual environment and install dependencies:
+1. Create and activate a Python virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+source .venv/bin/activate
+pip install -r requirements.lock.txt
 ```
+> [!NOTE]
+> If you keep the venv activated, you can run the commands below with `python` and `pip` directly. Otherwise, keep the `.venv/bin/` prefix as shown.
 
 2. LaTeX setup (for paper-quality plots):
 
@@ -35,16 +49,11 @@ sudo apt-get update
 sudo apt-get install -y tcpdump
 ```
 
-4. Optional (pcap-derived plots for Figs. 2 and 4):
-
-```bash
-.venv/bin/pip install dpkt
-```
-
 ## Reproduce results
 
 This section provides the exact commands to reproduce each figure in the paper. Each command is designed to run the necessary simulations and generate the corresponding plots. The outputs are specified for each command, and optional flags for styling are noted. 
-Follow the commands in order if you want to ensure that the the --only-plot flag is called on an existing set of results. If you want to regenerate the data, simply omit the --only-plot flag and rerun the command. 
+
+Follow the commands in order if you want to ensure that the the `--only-plot` flag is called on an existing set of results. If you want to regenerate the data, simply omit the `--only-plot` flag and rerun the command. 
 
 ### Figures 2-6: Frequency response and cyber-layer characteristics
 
@@ -58,7 +67,7 @@ Follow the commands in order if you want to ensure that the the --only-plot flag
   --latex
 ```
 
-Output: plots/pcap_setpoint_arrival_rel_to_meas_delay.pdf'
+Output: `plots/pcap_setpoint_arrival_rel_to_meas_delay.pdf`
 
 - Fig. 3 (frequency comparison, MITM delay ranges):
 
@@ -72,7 +81,7 @@ Output: plots/pcap_setpoint_arrival_rel_to_meas_delay.pdf'
   --out-name freq_comparison_delay_mean_sd.pdf
 ```
 
-Output: plots/freq_comparison_delay_mean_sd.pdf
+Output: `plots/freq_comparison_delay_mean_sd.pdf`
 
 - Fig. 4 (setpoint counts under drop attacks):
 
@@ -98,7 +107,7 @@ Output: plots/pcap_setpoint_count_to_server_drop.pdf
   --out-name freq_comparison_drop_mean_sd.pdf
 ```
 
-Output: plots/freq_comparison_drop_mean_sd.pdf
+Output: `plots/freq_comparison_drop_mean_sd.pdf`
 
 - Fig. 6 (frequency comparison, MITM modification probabilities):
 
@@ -112,7 +121,7 @@ Output: plots/freq_comparison_drop_mean_sd.pdf
   --out-name freq_comparison_mod_mean_sd.pdf
 ```
 
-Output: plots/freq_comparison_mod_mean_sd.pdf
+Output: `plots/freq_comparison_mod_mean_sd.pdf`
 
 
 ### Figures 7-8: ML model classification performance
@@ -123,7 +132,7 @@ Output: plots/freq_comparison_mod_mean_sd.pdf
 .venv/bin/python data_preparator.py
 ```
 
-Output: data/final_data.csv
+Output: `data/final_data.csv`
 
 2. Train/evaluate and generate the classification plots.
 
@@ -132,8 +141,8 @@ Output: data/final_data.csv
 ```
 
 Outputs:
-- plots/classifier_comparison.pdf (Fig. 7)
-- plots/confusion_matrices_by_model_1_2s.pdf (Fig. 8)
+- `plots/classifier_comparison.pdf` (Fig. 7)
+- `plots/confusion_matrices_by_model_1_2s.pdf` (Fig. 8)
 
 ### Figures 9-10: Real-time attack vector classification
 
@@ -144,8 +153,8 @@ Run the single-server simulation to generate the real-time classification plots.
 ```
 
 Outputs:
-- plots/time_granularity_distribution_sim.pdf (Fig. 9)
-- plots/classifier_prediction_sim.pdf (Fig. 10)
+- `plots/time_granularity_distribution_sim.pdf` (Fig. 9)
+- `plots/classifier_prediction_sim.pdf` (Fig. 10)
 
 > [!WARNING]
 > Results regarding the real-time classification response time (Figs. 9-10) may vary significantly based on the hardware capabilities of the machine running the simulation. The paper's results were obtained on a Raspberry Pi 3B+, which has limited processing power and adequately reflects the hardware characteristics of RTU used in real-world scenarios. Running the same simulation on a more powerful machine (e.g., a modern laptop or desktop) may yield much faster classification times.
@@ -194,12 +203,12 @@ Plot-only regeneration (no rerun):
 ```
 
 Optional plot styling:
-- Add --latex to run_batch_experiment.py or plotter_comparator.py for LaTeX text rendering.
-- Add --poster to increase plot font sizes.
+- Add `--latex` to `run_batch_experiment.py` or `plotter_comparator.py` for LaTeX text rendering.
+- Add `--poster` to increase plot font sizes.
 
 Notes:
-- By default the outstation waits for a start handshake command (IOA 8999). Disable with IEC104_WAIT_START=0 or --no-wait-start.
-- Shedding modes: --shed-mode per_command (default) or --shed-mode all_at_once.
+- By default the outstation waits for a start handshake command (IOA 8999). Disable with `IEC104_WAIT_START=0` or `--no-wait-start`.
+- Shedding modes: `--shed-mode per_command` (default) or `--shed-mode all_at_once`.
 
 > [!NOTE]
 > Pcap plots require tcpdump permissions (or equivalent capabilities) so the captures exist under logs/.
