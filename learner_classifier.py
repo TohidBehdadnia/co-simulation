@@ -292,8 +292,8 @@ def main(args: argparse.Namespace):
         ax.set_xlabel("Time Window")
     else:
         ax.set_xlabel("$\\mathcal{{W}}_{{q}} \\rightarrow [\\tau_q^{{\\min}}, \\tau_q^{{\\max}}) $ (s)")
-    if not latex: ax.set_ylabel("Macro F1-Score ± SD") 
-    else: ax.set_ylabel("Macro F1-Score $\pm$ SD")  
+    if not latex: ax.set_ylabel("Macro F1-score ± SD") 
+    else: ax.set_ylabel("Macro F1-score $\pm$ SD")  
     ax.set_ylim(0, 1.0)
     ax.set_xticks(x_centers)
     if latex:
