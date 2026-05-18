@@ -1,18 +1,38 @@
-# co-simulation
+# Data-Driven Cyber-Physical Consistency Assessment for Anomaly Detection in Power Systems: A Co-Simulation-Based Approach — Co-Simulation Testbed 
 
-This repo contains an ANDES-IEC 104-based co-simulation that measures control/communication characterustics over IEC-104 and frequency response after a contingency event and the subsequent load shedding operations are performed. 
+This repo contains an ANDES-IEC 104-based co-simulation that measures control/communication characteristics over IEC-104 and frequency response after a contingency event and the subsequent load shedding operations are performed. 
 It also allows for the simulation of alternative Man In The Middle (MITM) attack vectors, such as delay, drop, and modification of IEC-104 setpoint commands.
 Moreover, it also includes a machine learning-based attack vector classification component that evaluates the performance of several classifiers in distinguishing between normal operation and different attack scenarios based on features derived from the frequency response and cyber-layer characteristics.
 
-This README specifies the setup and commands to reproduce the results in the associated paper. The code is organized into several Python scripts, each responsible for different aspects of the simulation, data processing, and plotting.
+This README specifies the setup and commands to reproduce the results presented in the paper "Data-Driven Cyber-Physical Consistency Assessment for Anomaly Detection in Power Systems: A Co-Simulation-Based Approach". 
 
-Folders structure:
+## Authors and Contacts
+- Tohid Behdadnia<sup>†</sup> &rarr; [tohid.behdadnia@kuleuven.be](mailto:tohid.behdadnia@kuleuven.be)
+- Davide Savarro<sup>†</sup> &rarr; [davide.savarro@unito.it](mailto:davide.savarro@unito.it)
+- Roberta Terruggia &rarr; [roberta.terruggia@rse-web.it](mailto:roberta.terruggia@rse-web.it)
+- Geert Deconinck &rarr; [geert.deconinck@kuleuven.be](mailto:geert.deconinck@kuleuven.be)
+
+<sup>†</sup> These authors contributed equally to this work and share first authorship.
+
+## Testbed structure and organization
+
+The code is organized into several Python scripts, each responsible for different aspects of the simulation, data processing, and plotting. 
+
+Main folders and files structure:
 ```
 co-simulation/
-├── plots/      // Generated plots
-├── results/    // Per-run data (e.g., frequency response, features)
-├── logs/       // Run logs and pcaps
-├── data/       // Processed datasets (e.g., final_data.csv for ML)
+├── plots/                       // Generated plots
+├── results/                     // Per-run data (e.g., frequency response, features)
+├── logs/                        // Run logs and pcaps
+├── data/                        // Processed datasets (e.g., final_data.csv for ML)
+├── system_RT_iec104.py          // Remote Terminal Unit (RTU) implementation and co-simulation orchestration
+├── controller_iec104_master.py  // Master Terminal Unit (MTU) implementation
+├── mitm_proxy_iec104.py         // MITM proxy implementation to simulate multiple attack vectors
+├── run_batch_experiment.py      // Script to run batch experiments for different scenarios and generate plots
+├── data_preparator.py           // Script to prepare the dataset for ML classification
+├── learner_classifier.py        // Script to train/evaluate ML classifiers and generate performance plots
+├── requirements.txt             // Python dependencies
+├── requirements.lock.txt        // Locked Python dependencies (specific versions)
 ...
 ```
 
@@ -49,7 +69,7 @@ sudo apt-get update
 sudo apt-get install -y tcpdump
 ```
 
-## Reproduce results
+## Replicating the results
 
 This section provides the exact commands to reproduce each figure in the paper. Each command is designed to run the necessary simulations and generate the corresponding plots. The outputs are specified for each command, and optional flags for styling are noted. 
 
@@ -212,3 +232,6 @@ Notes:
 
 > [!NOTE]
 > Pcap plots require tcpdump permissions (or equivalent capabilities) so the captures exist under logs/.
+
+## License
+This repository is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
