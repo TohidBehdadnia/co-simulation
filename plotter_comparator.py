@@ -516,6 +516,36 @@ def _maybe_generate_pcap_plots(
                 pal[k] = c
         return pal
 
+    def _add_median_labels(
+        *,
+        ax: plt.Axes,
+        df: "pd.DataFrame",
+        order: list[str],
+        fmt: str,
+    ) -> None:
+        medians = df.groupby("Scenario", sort=False)["Value"].median()
+        values = df["Value"].to_numpy(dtype=float)
+        if values.size == 0:
+            return
+        vmin = float(np.nanmin(values))
+        vmax = float(np.nanmax(values))
+        span = vmax - vmin
+        offset = span * 0.01 if span > 0.0 else max(0.01, abs(vmax) * 0.01)
+
+        for idx, label in enumerate(order):
+            if label not in medians:
+                continue
+            val = float(medians[label])
+            ax.text(
+                float(idx),
+                val + offset,
+                fmt.format(val),
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                color="black",
+            )
+
     def _save_count_boxplot(
         *,
         data: dict[str, list[int]],
@@ -560,6 +590,11 @@ def _maybe_generate_pcap_plots(
             ax=ax,
             medianprops={"color": "black", "linewidth": 1.5}
         )
+        if baseline_mean is not None and baseline_mean > 0.0:
+            fmt = "{:.1f}\\%" if _WANT_LATEX else "{:.1f}%"
+        else:
+            fmt = "{:.0f}"
+        _add_median_labels(ax=ax, df=df, order=order, fmt=fmt)
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario") 
         if _WANT_LATEX:
@@ -620,6 +655,7 @@ def _maybe_generate_pcap_plots(
             ax=ax,
             medianprops={"color": "black", "linewidth": 1.5}
         )
+        _add_median_labels(ax=ax, df=df, order=order, fmt="{:.2f}")
         ax.legend_.remove() if ax.legend_ else None
         ax.set_xlabel("Scenario")
         if _WANT_LATEX:
