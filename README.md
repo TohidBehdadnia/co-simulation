@@ -7,12 +7,7 @@ Moreover, it also includes a machine learning-based attack vector classification
 This README specifies the setup and commands to reproduce the results presented in the paper "Data-Driven Cyber-Physical Consistency Assessment for Anomaly Detection in Power Systems: A Co-Simulation-Based Approach". 
 
 ## Authors and Contacts
-- Tohid Behdadnia<sup>†</sup> &rarr; [tohid.behdadnia@kuleuven.be](mailto:tohid.behdadnia@kuleuven.be)
-- Davide Savarro<sup>†</sup> &rarr; [davide.savarro@unito.it](mailto:davide.savarro@unito.it)
-- Roberta Terruggia &rarr; [roberta.terruggia@rse-web.it](mailto:roberta.terruggia@rse-web.it)
-- Geert Deconinck &rarr; [geert.deconinck@kuleuven.be](mailto:geert.deconinck@kuleuven.be)
-
-<sup>†</sup> These authors contributed equally to this work and share first authorship.
+Anonymized for review.
 
 ## Testbed structure and organization
 
