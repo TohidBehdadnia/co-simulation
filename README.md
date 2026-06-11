@@ -1,10 +1,10 @@
-# Data-Driven Cyber-Physical Consistency Assessment for Anomaly Detection in Power Systems: A Co-Simulation-Based Approach — Co-Simulation Testbed 
+# Edge-ready anomaly detection using cyber-physical consistency assessment in power systems: A co-simulation-based approach — Co-Simulation Testbed 
 
 This repo contains an ANDES-IEC 104-based co-simulation that measures control/communication characteristics over IEC-104 and frequency response after a contingency event and the subsequent load shedding operations are performed. 
 It also allows for the simulation of alternative Man In The Middle (MITM) attack vectors, such as delay, drop, and modification of IEC-104 setpoint commands.
 Moreover, it also includes a machine learning-based attack vector classification component that evaluates the performance of several classifiers in distinguishing between normal operation and different attack scenarios based on features derived from the frequency response and cyber-layer characteristics.
 
-This README specifies the setup and commands to reproduce the results presented in the paper "Data-Driven Cyber-Physical Consistency Assessment for Anomaly Detection in Power Systems: A Co-Simulation-Based Approach". 
+This README specifies the setup and commands to reproduce the results presented in the paper "Edge-ready anomaly detection using cyber-physical consistency assessment in power systems: A co-simulation-based approach". 
 
 ## Authors and Contacts
 Anonymized for review.
