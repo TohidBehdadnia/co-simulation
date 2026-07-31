@@ -207,8 +207,17 @@ def _build_plot_specs_mod(latexEnabled: bool = False) -> list[dict]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Run all IEC-104 scenarios (10 runs each) and generate aggregated plot")
+    ap = argparse.ArgumentParser(description="Run IEC-104 scenario batches and generate aggregated plot(s)")
     ap.add_argument("--num-runs", type=int, default=10)
+    ap.add_argument(
+        "--normal-runs",
+        type=int,
+        default=None,
+        help=(
+            "Number of runs for the direct (normal) scenario. "
+            "If omitted, --num-runs is used."
+        ),
+    )
     ap.add_argument("--base-seed", type=int, default=98)
     ap.add_argument("--run-timeout", type=float, default=240.0)
     ap.add_argument(
@@ -274,6 +283,10 @@ def main() -> int:
 
     if int(args.num_runs) <= 0:
         raise ValueError("--num-runs must be > 0")
+    if args.normal_runs is not None and int(args.normal_runs) <= 0:
+        raise ValueError("--normal-runs must be > 0")
+
+    normal_runs = int(args.normal_runs) if args.normal_runs is not None else int(args.num_runs)
 
     if bool(args.clean) and not bool(args.only_plot):
         if str(args.batch) == "drop":
@@ -289,7 +302,7 @@ def main() -> int:
                 _run_campaign(
                     scenario="direct",
                     mitm_mode="delay",
-                    num_runs=int(args.num_runs),
+                    num_runs=normal_runs,
                     start_id=2001,
                     run_timeout=float(args.run_timeout),
                     base_seed=int(args.base_seed),
@@ -332,7 +345,7 @@ def main() -> int:
                 _run_campaign(
                     scenario="direct",
                     mitm_mode="delay",
-                    num_runs=int(args.num_runs),
+                    num_runs=normal_runs,
                     start_id=2001,
                     run_timeout=float(args.run_timeout),
                     base_seed=int(args.base_seed),
@@ -377,7 +390,7 @@ def main() -> int:
             _run_campaign(
                 scenario="direct",
                 mitm_mode="delay",
-                num_runs=int(args.num_runs),
+                num_runs=normal_runs,
                 start_id=2001,
                 run_timeout=float(args.run_timeout),
                 base_seed=int(args.base_seed),

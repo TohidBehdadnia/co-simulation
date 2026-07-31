@@ -133,9 +133,9 @@ def _plot_time_granularity_distribution(inter_times: np.ndarray, args: argparse.
 
     rects_and_texts = [
         {
-            "coords": (-0.5, 3, 15, 5000),
+            "coords": (-0.5, 3, 15, 14000),
             "text": "Bursts of setpoint commands",
-            "txt_pos": (0.2, 5500),
+            "txt_pos": (0.2, 14500),
             "color": "red",
         },
         {
@@ -145,7 +145,7 @@ def _plot_time_granularity_distribution(inter_times: np.ndarray, args: argparse.
             "color": "darkorange",
         },
         {
-            "coords": (32.0, 34.0, 15, 300000),
+            "coords": (32.0, 34.0, 15, 600000),
             "text": "Periodic events (e.g. physical measurements)",
             "txt_pos": (11.6, 200000),
             "color": "green",

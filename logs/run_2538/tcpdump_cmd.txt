@@ -1,0 +1,1 @@
+/usr/bin/tcpdump -i any -nn -s 0 -U -w /home/davide.savarro/co-simulation/logs/run_2538/traffic.pcap tcp port 2404 or tcp port 2405

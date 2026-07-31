@@ -146,6 +146,28 @@ Output: `plots/freq_comparison_mod_mean_sd.pdf`
 
 ### Figures 7-8: ML model classification performance
 
+Balanced dataset setup (recommended for classification):
+
+The default workflow produces fewer normal runs than attack runs when combining all attack families.
+To generate a balanced dataset with 900 normal runs and 900 attack runs (300 delay + 300 drop + 300 modification), run:
+
+```bash
+.venv/bin/python run_batch_experiment.py \
+  --batch delay \
+  --num-runs 100 \
+  --normal-runs 900
+
+.venv/bin/python run_batch_experiment.py \
+  --batch drop \
+  --num-runs 100 \
+  --reuse-direct
+
+.venv/bin/python run_batch_experiment.py \
+  --batch mod \
+  --num-runs 100 \
+  --reuse-direct
+```
+
 1. Build the dataset after running all IEC-104 scenarios above.
 
 ```bash

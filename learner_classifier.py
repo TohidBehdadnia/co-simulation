@@ -5,7 +5,7 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
@@ -26,6 +26,7 @@ dataFolder = Path("./data").absolute()
 resultsFolder = Path("./results").absolute()
 plotsFolder = Path("./plots").absolute()
 data = pd.read_csv(dataFolder / "final_data.csv")
+data["class"] = data["class"].replace({"modify": "mod"})
 
 classifiers = {
     "MNB": MultinomialNB(),
@@ -181,16 +182,21 @@ def main(args: argparse.Namespace):
                         clf.fit(X_train, y_train)
                         y_pred = clf.predict(X_test)
                         
-                        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+                        precision, recall, f1_score, _ = precision_recall_fscore_support(
+                            y_test,
+                            y_pred,
+                            average="macro",
+                            zero_division=0,
+                        )
                         labels = y.unique()
                         # The time window is reported in absolute time and not relative to the trip event (for consistency with the previous plots)
                         score_rows.append({
                             "Classifier": clfName,
                             "Time Window": f"{start+1}-{end+1} seconds",
                             "Fold": fold + 1,
-                            "Precision": report["weighted avg"]["precision"],
-                            "Recall": report["weighted avg"]["recall"],
-                            "F1-Score": report["weighted avg"]["f1-score"],
+                            "Precision": precision,
+                            "Recall": recall,
+                            "F1-Score": f1_score,
                             "Confusion Matrix Order": labels.tolist(),
                             "Confusion Matrix": confusion_matrix(y_test, y_pred, labels=labels).tolist(),
                             "Feature Set": feature_set["name"]
@@ -369,6 +375,74 @@ def main(args: argparse.Namespace):
             })
     summary_df = pd.DataFrame(summary_data)
     summary_df.to_csv(resultsFolder / "classifier_summary.csv", index=False)
+
+    # Store the mean F1-score delta between Physical + Cyber and Cyber Only
+    diff_df = (
+        summary_df.pivot_table(
+            index=["Classifier", "Time Window"],
+            columns="Condition",
+            values="Mean F1-Score",
+        )
+        .reset_index()
+    )
+    diff_df = diff_df.rename(
+        columns={
+            "Cyber Only": "Cyber Only Mean F1-Score",
+            "Physical + Cyber": "Physical + Cyber Mean F1-Score",
+        }
+    )
+    diff_df["Mean F1-Score Difference (Physical + Cyber - Cyber Only)"] = (
+        diff_df["Physical + Cyber Mean F1-Score"] - diff_df["Cyber Only Mean F1-Score"]
+    )
+    diff_df["Percentage Improvement Over Cyber Only (%)"] = np.where(
+        diff_df["Cyber Only Mean F1-Score"] != 0,
+        diff_df["Mean F1-Score Difference (Physical + Cyber - Cyber Only)"]
+        / diff_df["Cyber Only Mean F1-Score"]
+        * 100.0,
+        np.nan,
+    )
+    diff_df = diff_df[
+        [
+            "Classifier",
+            "Time Window",
+            "Cyber Only Mean F1-Score",
+            "Physical + Cyber Mean F1-Score",
+            "Mean F1-Score Difference (Physical + Cyber - Cyber Only)",
+            "Percentage Improvement Over Cyber Only (%)",
+        ]
+    ]
+
+    avg_all_windows_df = (
+        diff_df.groupby("Classifier", as_index=False)[
+            [
+                "Cyber Only Mean F1-Score",
+                "Physical + Cyber Mean F1-Score",
+                "Mean F1-Score Difference (Physical + Cyber - Cyber Only)",
+            ]
+        ]
+        .mean()
+    )
+    avg_all_windows_df["Percentage Improvement Over Cyber Only (%)"] = np.where(
+        avg_all_windows_df["Cyber Only Mean F1-Score"] != 0,
+        avg_all_windows_df["Mean F1-Score Difference (Physical + Cyber - Cyber Only)"]
+        / avg_all_windows_df["Cyber Only Mean F1-Score"]
+        * 100.0,
+        np.nan,
+    )
+    avg_all_windows_df["Time Window"] = "Average (All Time Windows)"
+    avg_all_windows_df = avg_all_windows_df[
+        [
+            "Classifier",
+            "Time Window",
+            "Cyber Only Mean F1-Score",
+            "Physical + Cyber Mean F1-Score",
+            "Mean F1-Score Difference (Physical + Cyber - Cyber Only)",
+            "Percentage Improvement Over Cyber Only (%)",
+        ]
+    ]
+    diff_df = pd.concat([diff_df, avg_all_windows_df], ignore_index=True)
+
+    diff_df.to_csv(resultsFolder / "classifier_diff_cyber_vs_phys_cyber.csv", index=False)
 
     if args.poster:
         sns.set_theme(font_scale=1, font="serif")

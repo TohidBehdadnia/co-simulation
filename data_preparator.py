@@ -4,7 +4,10 @@ from pathlib import Path
 from tqdm import tqdm
 
 def find_files(folder: Path, extension: str) -> list[Path]:
-    return [f for f in folder.iterdir() if f.is_file() and f.suffix == extension]
+    return sorted(
+        [f for f in folder.iterdir() if f.is_file() and f.suffix == extension],
+        key=lambda p: p.name,
+    )
 
 def convert(fileData: np.lib.npyio.NpzFile, delay: float) -> pd.DataFrame:
     tripTime = 1 # The trip event happened at 1 second
@@ -46,7 +49,7 @@ classToFolders = {
     "normal": ["case_iec104_direct_percmd"],
     "delay": ["case_iec104_mitm_delay_dmin0p4_dmax0p6_percmd", "case_iec104_mitm_delay_dmin0p15_dmax0p35_percmd", "case_iec104_mitm_delay_dmin0p65_dmax0p85_percmd"],
     "drop": ["case_iec104_mitm_drop_pdrop0p1_percmd", "case_iec104_mitm_drop_pdrop0p5_percmd", "case_iec104_mitm_drop_pdrop0p9_percmd"],
-    "modify": ["case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "case_iec104_mitm_mod_pmod0p9_f1p5_percmd"]
+    "mod": ["case_iec104_mitm_mod_pmod0p1_f1p5_percmd", "case_iec104_mitm_mod_pmod0p5_f1p5_percmd", "case_iec104_mitm_mod_pmod0p9_f1p5_percmd"]
 }
 
 def main():
@@ -85,6 +88,15 @@ def main():
         finalDf = pd.concat(finalDfParts, ignore_index=True) if finalDfParts else pd.DataFrame(columns=finalDfColumns)
 
     print("Data preparation completed. Final DataFrame shape:", finalDf.shape)
+
+    # Report class balance in terms of distinct runs and samples.
+    run_counts = finalDf.groupby("class")["run-id"].nunique().sort_index()
+    sample_counts = finalDf["class"].value_counts().sort_index()
+    print("Run counts by class:")
+    print(run_counts.to_string())
+    print("Sample counts by class:")
+    print(sample_counts.to_string())
+
     print(finalDf.head(n=10))
 
     finalDf.to_csv(dataFolder / "final_data.csv", index=False)
