@@ -256,6 +256,9 @@ def main(args: argparse.Namespace):
     }
 
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=False)
+    comparison_label_fontsize = 15 if args.poster else 18
+    comparison_tick_fontsize = 12 if args.poster else 14
+    comparison_legend_fontsize = 12 if args.poster else 14
 
     x_centers = np.arange(len(time_windows))
     n_classifiers = len(classifiers_list)
@@ -295,11 +298,16 @@ def main(args: argparse.Namespace):
             )
 
     if not latex:
-        ax.set_xlabel("Time Window")
+        ax.set_xlabel("Time Window", fontsize=comparison_label_fontsize)
     else:
-        ax.set_xlabel("$\\mathcal{{W}}_{{q}} \\rightarrow [\\tau_q^{{\\min}}, \\tau_q^{{\\max}}) $ (s)")
-    if not latex: ax.set_ylabel("Macro F1-score ± SD") 
-    else: ax.set_ylabel("Macro F1-score $\pm$ SD")  
+        ax.set_xlabel(
+            "$\\mathcal{{W}}_{{q}} \\rightarrow [\\tau_q^{{\\min}}, \\tau_q^{{\\max}}) $ (s)",
+            fontsize=comparison_label_fontsize,
+        )
+    if not latex:
+        ax.set_ylabel("Macro F1-score ± SD", fontsize=comparison_label_fontsize)
+    else:
+        ax.set_ylabel("Macro F1-score $\pm$ SD", fontsize=comparison_label_fontsize)
     ax.set_ylim(0, 1.0)
     ax.set_xticks(x_centers)
     if latex:
@@ -310,9 +318,10 @@ def main(args: argparse.Namespace):
             start = parts[0].strip() if len(parts) > 0 else ""
             end = parts[1].strip() if len(parts) > 1 else ""
             latex_labels.append(f"$[{start},{end})$")
-        ax.set_xticklabels(latex_labels, rotation=0)
+        ax.set_xticklabels(latex_labels, rotation=0, fontsize=comparison_tick_fontsize)
     else:
-        ax.set_xticklabels(time_windows, rotation=15)
+        ax.set_xticklabels(time_windows, rotation=15, fontsize=comparison_tick_fontsize)
+    ax.tick_params(axis="y", labelsize=comparison_tick_fontsize)
 
     # Single legend box with section headers for classifiers and dataset conditions
     legend_handles = [
@@ -347,6 +356,7 @@ def main(args: argparse.Namespace):
         bbox_to_anchor=(1.01, 1.00),
         frameon=True,
         ncol=1,
+        fontsize=comparison_legend_fontsize,
     )
 
     # Reserve room on the right for legend
@@ -493,6 +503,8 @@ def main(args: argparse.Namespace):
 
     condition_layout = conditions
     normalization_mode = "row"
+    label_fontsize = 12 if args.poster else 14
+    tick_fontsize = 11 if args.poster else 13
     for row_idx, condition in enumerate(condition_layout):
         for col_idx, clf in enumerate(classifiers_list):
             ax = axes[row_idx][col_idx]
@@ -524,19 +536,25 @@ def main(args: argparse.Namespace):
                 yticklabels=class_labels if show_y_ticklabels else False,
                 ax=ax,
             )
+            if row_idx == 0 and col_idx == n_cols - 1:
+                cbar_ax.tick_params(labelsize=tick_fontsize)
 
             if row_idx == 0:
-                ax.set_title(clf)
+                ax.set_title(clf, fontsize=label_fontsize)
 
             if col_idx == 0:
                 if latex:
                     if condition == "Physical Only":
-                        condition_short = "Trained on $z^{{(phys)}}$\n"
+                        condition_short = "Trained on\n$z^{{(phys)}}$\n"
                     elif condition == "Cyber Only":
-                        condition_short = "Trained on $z^{{(cyb)}}$\n"
+                        condition_short = "Trained on\n$z^{{(cyb)}}$\n"
                     else:
-                        condition_short = "Trained on $z^{{(cp)}}$\n"
-                    ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
+                        condition_short = "Trained on\n$z^{{(cp)}}$\n"
+                    ax.set_ylabel(
+                        f"{condition_short}\nTrue Label",
+                        fontsize=label_fontsize,
+                        linespacing=1.3,
+                    )
                 else:
                     if condition == "Physical Only":
                         condition_short = "Physical\nFeatures\n"
@@ -544,19 +562,19 @@ def main(args: argparse.Namespace):
                         condition_short = "Cyber\nFeatures\n"
                     else:
                         condition_short = "Physical + Cyber\nFeatures\n"
-                    ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=10)
+                    ax.set_ylabel(f"{condition_short}\nTrue Label", fontsize=label_fontsize)
             else:
                 ax.set_ylabel("")
 
             if row_idx == n_rows - 1:
-                ax.set_xlabel("Predicted Label", fontsize=10)
+                ax.set_xlabel("Predicted Label", fontsize=label_fontsize)
             else:
                 ax.set_xlabel("")
 
             if show_x_ticklabels:
-                ax.set_xticklabels(class_labels, rotation=35, ha="right", fontsize=9)
+                ax.set_xticklabels(class_labels, rotation=35, ha="right", fontsize=tick_fontsize)
             if show_y_ticklabels:
-                ax.set_yticklabels(class_labels, rotation=35, fontsize=9)
+                ax.set_yticklabels(class_labels, rotation=35, fontsize=tick_fontsize)
 
     #fig.suptitle(f"Aggregated Confusion Matrices - {target_time_window}", y=0.995)
     fig.subplots_adjust(left=0.06, right=0.50, bottom=0.10, top=0.52, wspace=0.25, hspace=0.22)
