@@ -75,9 +75,9 @@ This section provides the exact commands to reproduce each figure in the paper. 
 
 Follow the commands in order if you want to ensure that the the `--only-plot` flag is called on an existing set of results. If you want to regenerate the data, simply omit the `--only-plot` flag and rerun the command. 
 
-### Figures 2-6: Frequency response and cyber-layer characteristics
+### Figures 3-7: Frequency response and cyber-layer characteristics
 
-- Fig. 2 (setpoint arrival times under delay attacks):
+- Fig. 3 (setpoint arrival times under delay attacks):
 
 ```bash
 .venv/bin/python run_batch_experiment.py \
@@ -89,7 +89,7 @@ Follow the commands in order if you want to ensure that the the `--only-plot` fl
 
 Output: `plots/pcap_setpoint_arrival_rel_to_meas_delay.pdf`
 
-- Fig. 3 (frequency comparison, MITM delay ranges):
+- Fig. 4 (frequency comparison, MITM delay ranges):
 
 ```bash
 .venv/bin/python run_batch_experiment.py \
@@ -103,7 +103,7 @@ Output: `plots/pcap_setpoint_arrival_rel_to_meas_delay.pdf`
 
 Output: `plots/freq_comparison_delay_mean_sd.pdf`
 
-- Fig. 4 (setpoint counts under drop attacks):
+- Fig. 5 (setpoint counts under drop attacks):
 
 ```bash
 .venv/bin/python run_batch_experiment.py \
@@ -115,7 +115,7 @@ Output: `plots/freq_comparison_delay_mean_sd.pdf`
 
 Output: plots/pcap_setpoint_count_to_server_drop.pdf
 
-- Fig. 5 (frequency comparison, MITM drop probabilities):
+- Fig. 6 (frequency comparison, MITM drop probabilities):
 
 ```bash
 .venv/bin/python run_batch_experiment.py \
@@ -129,7 +129,7 @@ Output: plots/pcap_setpoint_count_to_server_drop.pdf
 
 Output: `plots/freq_comparison_drop_mean_sd.pdf`
 
-- Fig. 6 (frequency comparison, MITM modification probabilities):
+- Fig. 7 (frequency comparison, MITM modification probabilities):
 
 ```bash
 .venv/bin/python run_batch_experiment.py \
@@ -144,7 +144,7 @@ Output: `plots/freq_comparison_drop_mean_sd.pdf`
 Output: `plots/freq_comparison_mod_mean_sd.pdf`
 
 
-### Figures 7-8: ML model classification performance
+### Figures 8-9: ML model classification performance
 
 Balanced dataset setup (recommended for classification):
 
@@ -183,10 +183,10 @@ Output: `data/final_data.csv`
 ```
 
 Outputs:
-- `plots/classifier_comparison.pdf` (Fig. 7)
-- `plots/confusion_matrices_by_model_1_2s.pdf` (Fig. 8)
+- `plots/classifier_comparison.pdf` (Fig. 8)
+- `plots/confusion_matrices_by_model_1_2s.pdf` (Fig. 9)
 
-### Figures 9-10: Real-time attack vector classification
+### Figures 10-11: Real-time attack vector classification
 
 Run the single-server simulation to generate the real-time classification plots.
 
@@ -195,11 +195,11 @@ Run the single-server simulation to generate the real-time classification plots.
 ```
 
 Outputs:
-- `plots/time_granularity_distribution_sim.pdf` (Fig. 9)
-- `plots/classifier_prediction_sim.pdf` (Fig. 10)
+- `plots/time_granularity_distribution_sim.pdf` (Fig. 10)
+- `plots/classifier_prediction_sim.pdf` (Fig. 11)
 
 > [!WARNING]
-> Results regarding the real-time classification response time (Figs. 9-10) may vary significantly based on the hardware capabilities of the machine running the simulation. The paper's results were obtained on a Raspberry Pi 3B+, which has limited processing power and adequately reflects the hardware characteristics of RTU used in real-world scenarios. Running the same simulation on a more powerful machine (e.g., a modern laptop or desktop) may yield much faster classification times.
+> Results regarding the real-time classification response time (Figs. 10-11) may vary significantly based on the hardware capabilities of the machine running the simulation. The paper's results were obtained on a Raspberry Pi 3B+, which has limited processing power and adequately reflects the hardware characteristics of RTU used in real-world scenarios. Running the same simulation on a more powerful machine (e.g., a modern laptop or desktop) may yield much faster classification times.
 
 ## Appendix: extra commands not strictly necessary
 
