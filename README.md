@@ -257,3 +257,26 @@ Notes:
 
 ## License
 This repository is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](LICENSE) file for details.
+
+## Reference
+
+If you use the code, models, or data in this repository in your research, please cite:
+
+Tohid Behdadnia, Davide Savarro, Roberta Terruggia, and Geert Deconinck, "Edge-ready anomaly detection using cyber-physical consistency assessment in power systems: A co-simulation-based approach," *International Journal of Critical Infrastructure Protection*, vol. 55, article 100911, 2026. [https://doi.org/10.1016/j.ijcip.2026.100911](https://doi.org/10.1016/j.ijcip.2026.100911)
+
+### BibTeX
+
+```bibtex
+@article{BEHDADNIA2026100911,
+  title = {Edge-ready anomaly detection using cyber-physical consistency assessment in power systems: A co-simulation-based approach},
+  author = {Tohid Behdadnia and Davide Savarro and Roberta Terruggia and Geert Deconinck},
+  journal = {International Journal of Critical Infrastructure Protection},
+  volume = {55},
+  pages = {100911},
+  year = {2026},
+  issn = {1874-5482},
+  doi = {10.1016/j.ijcip.2026.100911},
+  url = {https://www.sciencedirect.com/science/article/pii/S1874548226000831},
+  keywords = {Cyber-physical power systems, Anomaly detection, Edge inference, Co-simulation, IEC 60870-5-104}
+}
+```
